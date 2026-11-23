@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 from collections import Counter
@@ -20,15 +21,20 @@ from .claude import AnnotationError, make_tokens
 from .data import DATA_DIR
 from .lexicon import Lexicon
 from .pipeline import build_text_file, output_paths
-from .schema import validate_text_file
-from .text import canonical_simplified, detect_script, is_han_word, normalize_text
+from .schema import BASIS_KINDS, DEF_SOURCES, UNAVAILABLE, validate_text_file
+from .text import HAN_PATTERN, canonical_simplified, detect_script, is_han_word, normalize_text
 from .text import split_paragraphs, split_sentences
 
 DEFAULT_CHUNK_SIZE = 20
 DEFAULT_RETRIES = 2
 DEFAULT_OUTPUT_DIR = Path.home() / "Documents" / "zh-reader-out"
 DEFAULT_WORK_ROOT = DATA_DIR / "work"
-UNAVAILABLE = "[definition unavailable]"
+MAX_CONTEXTUAL_WORDS = 12
+MAX_BASIS_NOTE = 200
+MAX_EVIDENCE_PARTS = 8
+MAX_EVIDENCE_READINGS = 3
+MAX_EVIDENCE_DEF = 120
+MAX_GAP_SENTENCES = 3
 MANIFEST = "manifest.json"
 _REPOSITORY = Path(__file__).resolve().parents[3]
 
@@ -101,6 +107,78 @@ def _progress(work_dir: Path, manifest: dict) -> dict:
         "outputDir": manifest["outputDir"],
         "outputsExist": any(path.exists() for path in (json_path, source_path, report_path)),
     }
+
+
+# ---------------------------------------------------------------------------
+# Dictionary-gap evidence
+
+
+def _trim_candidates(candidates: list[dict] | None) -> list[dict]:
+    trimmed = []
+    for candidate in (candidates or [])[:MAX_EVIDENCE_READINGS]:
+        definition = candidate["def"]
+        if len(definition) > MAX_EVIDENCE_DEF:
+            definition = definition[: MAX_EVIDENCE_DEF - 1] + "…"
+        trimmed.append({"py": candidate["py"], "def": definition})
+    return trimmed
+
+
+def gap_evidence(word: str, lexicon: Lexicon) -> list[dict]:
+    """CC-CEDICT entries for the sub-words and characters of a word missing from CC-CEDICT.
+
+    Longer sub-words come first. Parts keep the word's own script when conversion preserves
+    its length.
+    """
+    key = canonical_simplified(word)
+    shown = word if len(word) == len(key) else key
+    parts: list[dict] = []
+    seen: set[str] = set()
+    for length in range(len(key) - 1, 0, -1):
+        for start in range(len(key) - length + 1):
+            sub = key[start : start + length]
+            if sub in seen or sub not in lexicon:
+                continue
+            seen.add(sub)
+            parts.append(
+                {
+                    "part": shown[start : start + length],
+                    "candidates": _trim_candidates(lexicon.candidates(sub)),
+                }
+            )
+            if len(parts) >= MAX_EVIDENCE_PARTS:
+                return parts
+    return parts
+
+
+def _gap_list(sentences: list[dict], lexicon: Lexicon, whole_text: list) -> list[dict]:
+    """One entry per missing word: its sentences here, elsewhere in the text, and components.
+
+    `elsewhere` lets an earlier introduction (美国总统特朗普) support a later bare mention.
+    """
+    gaps: dict[str, dict] = {}
+    chunk_ids = {sentence["id"] for sentence in sentences}
+    for sentence in sentences:
+        for token in sentence["tokens"]:
+            if "candidates" not in token or token["candidates"] is not None:
+                continue
+            key = canonical_simplified(token["t"])
+            gap = gaps.get(key)
+            if gap is None:
+                gap = gaps[key] = {
+                    "word": token["t"],
+                    "sentences": [],
+                    "elsewhere": [
+                        {"id": other.id, "text": other.text}
+                        for other in whole_text
+                        if other.id not in chunk_ids and token["t"] in other.text
+                    ][:MAX_GAP_SENTENCES],
+                    "components": gap_evidence(token["t"], lexicon),
+                }
+            if len(gap["sentences"]) < MAX_GAP_SENTENCES and all(
+                item["id"] != sentence["id"] for item in gap["sentences"]
+            ):
+                gap["sentences"].append({"id": sentence["id"], "text": sentence["text"]})
+    return list(gaps.values())
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +274,7 @@ def prepare(
                 "chunkCount": (len(sentences) + chunk_size - 1) // chunk_size,
                 "script": resolved_script,
                 "sentences": claude_input,
+                "gaps": _gap_list(claude_input, lexicon, sentences),
             },
         )
         _write_json(_chunk_path(work_dir, number, "local"), local_result)
@@ -256,9 +335,14 @@ def next_chunk(work_dir: Path) -> dict:
 
 
 def check_chunk_output(
-    chunk_input: dict, output: Any, lexicon: Lexicon
+    chunk_input: dict, output: Any, lexicon: Lexicon, source_text: str | None = None
 ) -> tuple[list[dict], list[str]]:
-    """Return (accepted sentences, errors). Sentences are only usable when errors is empty."""
+    """Return (accepted sentences, errors). Sentences are only usable when errors is empty.
+
+    `source_text` is the whole text; context quotes in a basis note are checked against it
+    (an introduction in an earlier chunk can support a later mention). It defaults to the
+    chunk's own sentences.
+    """
     expected = chunk_input["sentences"]
     if isinstance(output, dict) and isinstance(output.get("sentences"), list):
         output = output["sentences"]
@@ -283,6 +367,7 @@ def check_chunk_output(
         )
 
     by_id = {item.get("id"): item for item in output if isinstance(item, dict)}
+    context_text = source_text or "\n".join(sentence["text"] for sentence in expected)
     accepted = []
     for sentence in expected:
         item = by_id.get(sentence["id"])
@@ -295,19 +380,194 @@ def check_chunk_output(
         except AnnotationError as error:
             errors.append(f"{sentence['id']}: {error}{_join_hint(sentence['text'], item)}")
             continue
-        for token in tokens:
+        # make_tokens keeps one token per written item, in order.
+        for written, token in zip(item["tokens"], tokens):
             if token.get("p") is True:
                 continue
-            if token["k"] not in lexicon and token["def"] != UNAVAILABLE:
-                errors.append(
-                    f'{sentence["id"]}: "{token["t"]}" is not in CC-CEDICT; its def must be '
-                    f'exactly "{UNAVAILABLE}" (or re-segment into dictionary words).'
-                )
+            for error in _definition_errors(written, token, lexicon, context_text):
+                errors.append(f'{sentence["id"]}: "{token["t"]}" {error}')
         accepted.append({"id": sentence["id"], "translation": translation, "tokens": tokens})
 
     if not errors:
         errors.extend(_schema_errors(accepted, lexicon))
     return accepted, errors
+
+
+_GLOSS_WORD = re.compile(r"[a-z]+")
+_GLOSS_STOPWORDS = frozenset(
+    "a an the to of in on at by for with as or and be is are sb sth one one's oneself "
+    "its it etc used e g also".split()
+)
+
+
+def _gloss_words(text: str) -> list[str]:
+    return _GLOSS_WORD.findall(text.lower().replace("'s", ""))
+
+
+def gloss_matches_dictionary(gloss: str, key: str, lexicon: Lexicon) -> bool:
+    """True when a gloss reuses wording from one of the word's CC-CEDICT senses.
+
+    A gloss may shorten or pick among senses, but it must share a content word (or a
+    four-letter stem, so "warning" matches "to warn") with the dictionary. This catches a
+    definition replaced by an unrelated one; it cannot judge subtle paraphrase.
+    """
+    dictionary = {
+        word for entry in lexicon.senses.get(key, []) for word in _gloss_words(entry.definition)
+    }
+    written = _gloss_words(gloss)
+    content = [word for word in written if word not in _GLOSS_STOPWORDS] or written
+    for word in content:
+        if word in dictionary:
+            return True
+        if len(word) >= 4 and any(len(d) >= 4 and d[:4] == word[:4] for d in dictionary):
+            return True
+    return False
+
+
+def _evidence_hint(word: str, lexicon: Lexicon) -> str:
+    parts = gap_evidence(word, lexicon)
+    if not parts:
+        return "No CC-CEDICT entries exist for its characters."
+    summary = [
+        f"{part['part']} = " + " / ".join(c["def"] for c in part["candidates"][:2])
+        for part in parts
+    ]
+    return "Component evidence: " + json.dumps(summary, ensure_ascii=False)
+
+
+def _definition_errors(
+    written: dict, token: dict, lexicon: Lexicon, context_text: str
+) -> list[str]:
+    """Check one word token's defSource/basis and record them on the token."""
+    key = token["k"]
+    source = written.get("defSource")
+    basis = written.get("basis")
+    definition = token["def"]
+
+    if key in lexicon:
+        token["defSource"] = "dictionary"
+        hint = f"Candidates: {_candidate_hint(lexicon, key)}"
+        if source not in (None, "dictionary"):
+            return [
+                f'is in CC-CEDICT, so its defSource must be "dictionary" (or omitted), not '
+                f'{json.dumps(source)}. Gloss it from a dictionary sense. {hint}'
+            ]
+        if basis is not None:
+            return ['is in CC-CEDICT; dictionary words take no "basis". Remove it.']
+        if definition == UNAVAILABLE:
+            return [
+                f'is in CC-CEDICT, so its def must be a gloss from a dictionary sense, not '
+                f'"{UNAVAILABLE}". {hint}'
+            ]
+        if not gloss_matches_dictionary(definition, key, lexicon):
+            return [
+                f"has the def {json.dumps(definition)}, which matches no CC-CEDICT sense. "
+                "Do not replace dictionary definitions: choose the sense that fits and keep "
+                f"at least one of its words. {hint}"
+            ]
+        return []
+
+    fix = (
+        f'Write "defSource": "unknown" with def exactly "{UNAVAILABLE}", or, only if the '
+        'evidence supports it, "defSource": "contextual" with a short def and a "basis".'
+    )
+    if source is None:
+        return [
+            f"is not in CC-CEDICT, so it needs a defSource. {fix} "
+            f"{_evidence_hint(token['t'], lexicon)}"
+        ]
+    if source == "dictionary":
+        return [f'is not in CC-CEDICT, so its defSource cannot be "dictionary". {fix}']
+    if source not in DEF_SOURCES:
+        return [f"has an unrecognized defSource {json.dumps(source)}. {fix}"]
+    token["defSource"] = source
+
+    if source == "unknown":
+        errors = []
+        if definition != UNAVAILABLE:
+            errors.append(
+                f'is "unknown", so its def must be exactly "{UNAVAILABLE}", not '
+                f'{json.dumps(definition)}. Use "contextual" with a basis if you have evidence.'
+            )
+        if basis is not None:
+            errors.append('is "unknown"; remove its "basis" (only contextual glosses take one).')
+        return errors
+
+    errors = []
+    if definition == UNAVAILABLE:
+        errors.append(f'is "contextual" but has no gloss. Use "unknown" for "{UNAVAILABLE}".')
+    elif len(definition.split()) > MAX_CONTEXTUAL_WORDS:
+        errors.append(
+            f"has a contextual gloss of {len(definition.split())} words; the limit is "
+            f'{MAX_CONTEXTUAL_WORDS}. Shorten it, or use "unknown".'
+        )
+    kinds = ", ".join(f'"{kind}"' for kind in BASIS_KINDS)
+    if (
+        not isinstance(basis, dict)
+        or not isinstance(basis.get("note"), str)
+        or not basis["note"].strip()
+    ):
+        errors.append(
+            'is "contextual" but has no valid basis. Add "basis": {"kind": one of '
+            f'{kinds}, "note": the evidence}}, or use "unknown". '
+            f"{_evidence_hint(token['t'], lexicon)}"
+        )
+        return errors
+    kind, note = basis.get("kind"), basis["note"].strip()
+    if kind not in BASIS_KINDS:
+        errors.append(
+            f"has an unrecognized basis kind {json.dumps(kind)}; use one of {kinds}, "
+            'or "unknown".'
+        )
+        return errors
+    if len(note) > MAX_BASIS_NOTE:
+        errors.append(f"has a basis note over {MAX_BASIS_NOTE} characters. Shorten it.")
+    if kind in ("components", "transparent_compound"):
+        parts = gap_evidence(token["t"], lexicon)
+        if len(key) < 2 or not parts:
+            errors.append(
+                f'has basis "{kind}", but it has no dictionary components to build on. '
+                'Use "sentence_context" if the text explains it, otherwise "unknown".'
+            )
+        elif not any(char in note for char in token["t"] + key):
+            errors.append(
+                f'has basis "{kind}", but the note names none of its characters. Name the '
+                f"components the gloss comes from. {_evidence_hint(token['t'], lexicon)}"
+            )
+    elif not _quotes_context(note, token["t"], context_text):
+        what = (
+            "the identifying words (a role, title, work or event; two or more characters, "
+            "other than the name itself), or give only the kind of name"
+            if kind == "identified_referent"
+            else "the words (two or more characters, other than the word itself) that "
+            "establish the meaning"
+        )
+        errors.append(
+            f'has basis "{kind}", but the note quotes nothing from the text. Quote {what}, '
+            'or use "unknown".'
+        )
+    if not errors:
+        token["basis"] = {"kind": kind, "note": note}
+    return errors
+
+
+def _quotes_context(note: str, word: str, text: str) -> bool:
+    context = text.replace(word, "\n")
+    for run in HAN_PATTERN.findall(note):
+        if any(run[i : i + 2] in context for i in range(len(run) - 1)):
+            return True
+    return False
+
+
+def _candidate_hint(lexicon: Lexicon, key: str, limit: int = 4, width: int = 160) -> str:
+    candidates = lexicon.candidates(key) or []
+    parts = []
+    for candidate in candidates[:limit]:
+        definition = candidate["def"]
+        if len(definition) > width:
+            definition = definition[: width - 1] + "…"
+        parts.append(f"[{candidate['py']}] {definition}")
+    return json.dumps(parts, ensure_ascii=False)
 
 
 def _join_hint(expected: str, item: dict) -> str:
@@ -373,7 +633,10 @@ def validate(work_dir: Path, number: int) -> dict:
         accepted, errors = [], [f"Output is not valid JSON: {error}"]
     else:
         accepted, errors = check_chunk_output(
-            _read_json(_chunk_path(work_dir, number, "input")), output, _lexicon(manifest)
+            _read_json(_chunk_path(work_dir, number, "input")),
+            output,
+            _lexicon(manifest),
+            (work_dir / "source.txt").read_text(encoding="utf-8"),
         )
 
     if not errors:
@@ -422,6 +685,9 @@ def assemble(work_dir: Path, *, overwrite: bool = False) -> dict:
             queue.extend((item, True) for item in _read_json(_chunk_path(work_dir, number, "local")))
 
     position = 0
+    # key -> occurrences of Claude-written contextual glosses, for the words map and report
+    contextual: dict[str, list[dict]] = {}
+    occurrences: dict[str, list[str]] = {}
 
     def annotate(sentence: str) -> tuple[str, list[dict], dict]:
         nonlocal position
@@ -431,7 +697,19 @@ def assemble(work_dir: Path, *, overwrite: bool = False) -> dict:
         position += 1
         if "".join(token["t"] for token in item["tokens"]) != sentence:
             raise SkillError(f"Stored annotation for {item['id']} does not match the source.")
-        return item["translation"], item["tokens"], {"fallback": fallback}
+        tokens = []
+        for stored in item["tokens"]:
+            # Provenance moves to the word entry; tokens keep the plain schema-v1 shape.
+            token = {k: v for k, v in stored.items() if k not in ("defSource", "basis")}
+            if not token.get("p"):
+                occurrences.setdefault(token["k"], []).append(item["id"])
+                if stored.get("defSource") == "contextual" and stored.get("basis"):
+                    contextual.setdefault(token["k"], []).append(
+                        {"t": token["t"], "def": token["def"], "basis": stored["basis"],
+                         "sentenceId": item["id"]}
+                    )
+            tokens.append(token)
+        return item["translation"], tokens, {"fallback": fallback}
 
     source = (work_dir / "source.txt").read_text(encoding="utf-8")
     lexicon = _lexicon(manifest)
@@ -446,6 +724,9 @@ def assemble(work_dir: Path, *, overwrite: bool = False) -> dict:
         raise SkillError("Work files have more sentences than the source.")
     if data["textId"] != manifest["textId"]:
         raise SkillError("Work directory source does not match its manifest.")
+
+    review = _apply_provenance(data["words"], lexicon, contextual, occurrences)
+    report.update(review)
 
     report.update(
         {
@@ -475,6 +756,64 @@ def assemble(work_dir: Path, *, overwrite: bool = False) -> dict:
         "chunksFallbackToLocal": fallback_chunks,
         "unmatchedDictionaryWords": report["unmatchedDictionaryWords"],
         "unmatchedHskWords": report["unmatchedHskWords"],
+        "definitionSources": report["definitionSources"],
+        "identifiedReferents": [
+            {"word": item["word"], "def": item["def"]} for item in report["identifiedReferents"]
+        ],
+        "contextualGlosses": [
+            {"word": item["word"], "def": item["def"], "basis": item["basis"]["kind"]}
+            for item in report["contextualGlosses"]
+        ],
+        "unknownDefinitions": [item["word"] for item in report["unknownDefinitions"]],
+    }
+
+
+def _apply_provenance(
+    words: dict[str, dict],
+    lexicon: Lexicon,
+    contextual: dict[str, list[dict]],
+    occurrences: dict[str, list[str]],
+) -> dict:
+    """Add defSource/basis to each word entry and build the report's review lists.
+
+    A word missing from CC-CEDICT is "contextual" when any occurrence carries a validated
+    contextual gloss, and "unknown" otherwise (including fallback chunks). The entry's def
+    stays the dictionary field, so a contextual gloss is never shown as a dictionary fact.
+    """
+    counts: Counter[str] = Counter()
+    glosses: list[dict] = []
+    unknown: list[dict] = []
+    for key in sorted(words):
+        entry = words[key]
+        if key in lexicon:
+            entry["defSource"] = "dictionary"
+        elif key in contextual:
+            entry["defSource"] = "contextual"
+            entry["basis"] = dict(contextual[key][0]["basis"])
+            grouped: dict[tuple, dict] = {}
+            for record in contextual[key]:
+                basis = record["basis"]
+                group = grouped.setdefault(
+                    (record["def"], basis["kind"], basis["note"]),
+                    {"word": key, "t": record["t"], "def": record["def"],
+                     "basis": dict(basis), "sentenceIds": []},
+                )
+                if record["sentenceId"] not in group["sentenceIds"]:
+                    group["sentenceIds"].append(record["sentenceId"])
+            glosses.extend(grouped.values())
+        else:
+            entry["defSource"] = "unknown"
+            unknown.append(
+                {"word": key, "sentenceIds": list(dict.fromkeys(occurrences.get(key, [])))}
+            )
+        counts[entry["defSource"]] += 1
+    # Identifications of real people or organizations are the riskiest glosses: listed apart.
+    referents = [item for item in glosses if item["basis"]["kind"] == "identified_referent"]
+    return {
+        "definitionSources": {source: counts[source] for source in DEF_SOURCES},
+        "identifiedReferents": referents,
+        "contextualGlosses": [item for item in glosses if item not in referents],
+        "unknownDefinitions": unknown,
     }
 
 

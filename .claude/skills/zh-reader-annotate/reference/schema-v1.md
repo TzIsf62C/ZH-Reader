@@ -22,6 +22,7 @@ The reader imports schema-v1 JSON. The scripts build the document envelope (`tex
 - `tokens` is the local jieba segmentation. It is a starting point, not a requirement.
 - `candidates` lists every CC-CEDICT reading for the word. It is `null` when CC-CEDICT has no entry.
 - A token holding only `t` is punctuation, numbers, Latin text or whitespace.
+- `gaps` (chunk level) lists each word with `null` candidates once: up to three sentences it appears in (`sentences`), up to three sentences in other chunks that contain it (`elsewhere`), and the CC-CEDICT entries of its sub-words and characters (`components`). See [dictionary-gaps.md](dictionary-gaps.md).
 
 ## Chunk output (you write this)
 
@@ -42,11 +43,27 @@ A JSON array with one object per input sentence, in the same order and with the 
 
 A simplified sentence uses the same shape, for example `{"t": "银行", "py": "yínháng", "def": "bank"}`.
 
+A word token may also carry `defSource` (`dictionary`, `contextual` or `unknown`) and, for `contextual` only, `basis: {"kind", "note"}`. Words missing from CC-CEDICT must carry `defSource`:
+
+```json
+{"t": "滤水器", "py": "lǜshuǐqì", "def": "water filter", "defSource": "contextual",
+ "basis": {"kind": "transparent_compound", "note": "滤 to filter + 水 water + 器 device"}}
+```
+
+## Assembled output (schema-v1 addendum)
+
+The scripts move these fields from the tokens to the `words` map, so tokens keep the plain v1 shape. In skill output every word entry has an optional `defSource`, and contextual entries also have `basis`. A contextual entry's `def` stays `[definition unavailable]`, because the reader labels the entry's `def` as the dictionary definition; the gloss is on the tokens. Readers that don't know these fields ignore them. API-mode output does not include them.
+
 ## Validation (`validate.py`)
 
 1. The ids are exactly the input ids, in order.
 2. `translation` is a non-empty string.
 3. Joining every `t` gives `text` exactly, character for character. A changed, dropped, added or script-converted character fails this check. (`銀行` written as `银行` in a traditional text fails.)
 4. A token is either all Chinese characters, with non-empty `py` and `def`, or contains no Chinese characters at all and has only `t`. A token that mixes the two, such as `"我。"`, fails.
-5. A Chinese token whose word is not in CC-CEDICT has `def` equal to exactly `[definition unavailable]`.
-6. The assembled chunk passes the schema-v1 validator.
+5. A word in CC-CEDICT is `dictionary` (or has no `defSource`), has no `basis`, and has a `def` that shares a word or four-letter stem with one of its senses. The placeholder is rejected for it.
+6. A word not in CC-CEDICT has a `defSource` of `unknown` or `contextual`:
+   - `unknown`: `def` is exactly `[definition unavailable]`, with no `basis`.
+   - `contextual`: `def` is 12 words or fewer and not the placeholder. `basis.kind` is `components`, `transparent_compound`, `sentence_context` or `identified_referent`, and `basis.note` is non-empty, 200 characters or fewer.
+   - A component-based note names at least one of the word's characters, and the word must have dictionary components.
+   - A `sentence_context` or `identified_referent` note quotes two or more characters from anywhere in the text, other than the word itself.
+7. The assembled chunk passes the schema-v1 validator.

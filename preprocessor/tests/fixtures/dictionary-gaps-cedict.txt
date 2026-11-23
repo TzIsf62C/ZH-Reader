@@ -1,0 +1,61 @@
+# Minimal CC-CEDICT subset for tests/fixtures/dictionary-gaps.txt.
+# Deliberately absent: 雪莉 (personal name), 滤水器 (transparent compound), 叽萌 (invented word),
+# 贝索斯 (public figure, identified by the text), 斯威夫特 (surname the text does not identify).
+今天 今天 [jin1 tian1] /today/
+早上 早上 [zao3 shang5] /early morning/
+在 在 [zai4] /to exist/to be at/(used before a verb to indicate an action in progress)/
+廚房 厨房 [chu2 fang2] /kitchen/
+裡 里 [li3] /inside/
+喝 喝 [he1] /to drink/
+了 了 [le5] /(completed action marker)/
+一 一 [yi1] /one/
+杯 杯 [bei1] /cup/classifier for drinks/
+水 水 [shui3] /water/
+她 她 [ta1] /she/
+發現 发现 [fa1 xian4] /to discover/to find/
+水槽 水槽 [shui3 cao2] /sink/
+下面 下面 [xia4 mian5] /below/under/
+的 的 [de5] /of/~'s (possessive particle)/
+壞 坏 [huai4] /bad/broken/
+濾 滤 [lu:4] /to strain/to filter/
+器 器 [qi4] /device/tool/utensil/
+嘰 叽 [ji1] /grumble/
+萌 萌 [meng2] /to sprout/(slang) cute/
+雪 雪 [xue3] /snow/
+莉 莉 [li4] /used in 茉莉[mo4 li4]/used in the transliteration of female names/
+給 给 [gei3] /to give/for/
+朋友 朋友 [peng2 you5] /friend/
+打電話 打电话 [da3 dian4 hua4] /to make a telephone call/
+笑 笑 [xiao4] /to laugh/to smile/
+著 着 [zhe5] /aspect particle indicating action in progress/
+說 说 [shuo1] /to say/
+最近 最近 [zui4 jin4] /recently/
+很 很 [hen3] /very/
+買 买 [mai3] /to buy/
+一個 一个 [yi1 ge4] /one/a/
+個 个 [ge4] /classifier for people or objects/
+新 新 [xin1] /new/
+現在 现在 [xian4 zai4] /now/
+乾淨 干净 [gan1 jing4] /clean/
+亞馬遜 亚马逊 [Ya4 ma3 xun4] /Amazon/
+創始人 创始人 [chuang4 shi3 ren2] /founder/
+年輕 年轻 [nian2 qing1] /young/
+時 时 [shi2] /time/when/
+紐約 纽约 [Niu3 yue1] /New York/
+工作 工作 [gong1 zuo4] /to work/job/
+我 我 [wo3] /I/me/my/
+鄰居 邻居 [lin2 ju1] /neighbor/
+先生 先生 [xian1 sheng5] /teacher/husband/Mr./
+也 也 [ye3] /also/
+喜歡 喜欢 [xi3 huan5] /to like/
+唱歌 唱歌 [chang4 ge1] /to sing a song/
+後來 后来 [hou4 lai2] /afterwards/later/
+搬 搬 [ban1] /to move/
+到 到 [dao4] /to arrive/to reach/
+西雅圖 西雅图 [Xi1 ya3 tu2] /Seattle/
+貝 贝 [bei4] /cowry/shellfish/
+索 索 [suo3] /to search/rope/
+斯 斯 [si1] /(phonetic) s/(literary) this/
+威 威 [wei1] /power/might/
+夫 夫 [fu1] /husband/man/
+特 特 [te4] /special/

@@ -4,6 +4,35 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 WORD_TOKEN_SOURCE = {"claude", "local"}
+UNAVAILABLE = "[definition unavailable]"
+# Optional word-entry provenance (schema-v1 addendum; written by the skill, ignored by the reader).
+DEF_SOURCES = ("dictionary", "contextual", "unknown")
+BASIS_KINDS = ("components", "transparent_compound", "sentence_context", "identified_referent")
+
+
+def _provenance_errors(key: str, entry: dict) -> list[str]:
+    if "defSource" not in entry:
+        return [f'Word entry "{key}" has a basis without defSource.'] if "basis" in entry else []
+    source = entry["defSource"]
+    if source not in DEF_SOURCES:
+        return [f'Word entry "{key}" has an invalid defSource.']
+    if source != "contextual":
+        errors = [f'Word entry "{key}" has a basis but is not contextual.'] if "basis" in entry else []
+        if source == "unknown" and entry["def"] != UNAVAILABLE:
+            errors.append(f'Unknown word entry "{key}" must keep the def "{UNAVAILABLE}".')
+        return errors
+    basis = entry.get("basis")
+    if (
+        not isinstance(basis, dict)
+        or basis.get("kind") not in BASIS_KINDS
+        or not isinstance(basis.get("note"), str)
+        or not basis["note"].strip()
+    ):
+        return [f'Contextual word entry "{key}" has a missing or invalid basis.']
+    if entry["def"] != UNAVAILABLE:
+        # The entry def is the dictionary field; a contextual gloss lives on the tokens only.
+        return [f'Contextual word entry "{key}" must keep the def "{UNAVAILABLE}".']
+    return []
 
 
 def validate_text_file(data: Any) -> list[str]:
@@ -39,6 +68,7 @@ def validate_text_file(data: Any) -> list[str]:
 
     sentence_ids: set[str] = set()
     observed_counts: dict[str, int] = {}
+    token_defs: dict[str, list[Any]] = {}
     for paragraph_index, paragraph in enumerate(paragraphs):
         if not isinstance(paragraph, dict) or not isinstance(paragraph.get("sentences"), list):
             errors.append(f"Paragraph {paragraph_index} is malformed.")
@@ -76,6 +106,7 @@ def validate_text_file(data: Any) -> list[str]:
                 if token.get("src") not in WORD_TOKEN_SOURCE:
                     errors.append(f'Word token "{token["t"]}" in {sentence_id} has an invalid source.')
                 observed_counts[key] = observed_counts.get(key, 0) + 1
+                token_defs.setdefault(key, []).append(token.get("def"))
 
     for key, entry in words.items():
         if (
@@ -90,6 +121,11 @@ def validate_text_file(data: Any) -> list[str]:
         ):
             errors.append(f'Word entry "{key}" is malformed.')
             continue
+        errors.extend(_provenance_errors(key, entry))
+        if entry.get("defSource") == "unknown" and any(
+            definition != UNAVAILABLE for definition in token_defs.get(key, ())
+        ):
+            errors.append(f'Unknown word "{key}" has a token with a definition.')
         if entry["countInText"] != observed_counts.get(key, 0):
             errors.append(f'Word entry "{key}" has an incorrect countInText.')
     if set(words) != set(observed_counts):
