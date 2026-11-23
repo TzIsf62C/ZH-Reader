@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zh-reader-preprocessor"
+version = "0.1.0"
+description = "Prepare schema-v1 annotated Chinese texts for ZH Reader"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "certifi>=2025.1",
+  "jieba>=0.42.1,<0.43",
+  "opencc-python-reimplemented>=0.1.7,<0.2",
+  "pypinyin>=0.55,<0.56",
+]
+
+[project.optional-dependencies]
+claude = ["anthropic>=0.40,<1"]
+
+[project.scripts]
+zh-preprocessor = "zh_preprocessor.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
