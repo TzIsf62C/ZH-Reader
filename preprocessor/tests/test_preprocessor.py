@@ -48,6 +48,25 @@ class Fixture:
         self.temporary.cleanup()
 
 
+def reader_validation(data: dict) -> dict:
+    """Run the reader's TypeScript validateTextFile on data (requires Node.js)."""
+    repository = Path(__file__).resolve().parents[2]
+    schema_url = (repository / "reader/src/core/schema.ts").as_uri()
+    script = (
+        f"import {{ validateTextFile }} from {json.dumps(schema_url)};"
+        "import { readFileSync } from 'node:fs';"
+        "console.log(JSON.stringify(validateTextFile(JSON.parse(readFileSync(0, 'utf8')))));"
+    )
+    result = subprocess.run(
+        [shutil.which("node"), "--experimental-strip-types", "--input-type=module", "-e", script],
+        input=json.dumps(data, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(result.stdout)
+
+
 class TextProcessingTests(unittest.TestCase):
     def test_normalizes_line_endings_and_preserves_paragraph_boundaries(self):
         self.assertEqual(
@@ -130,27 +149,8 @@ class LocalPipelineTests(unittest.TestCase):
         data, _, _ = build_text_file(
             "我去银行。", "Schema integration", "auto", annotate, self.fixture.lexicon
         )
-        repository = Path(__file__).resolve().parents[2]
-        schema_url = (repository / "reader/src/core/schema.ts").as_uri()
-        script = (
-            f"import {{ validateTextFile }} from {json.dumps(schema_url)};"
-            "import { readFileSync } from 'node:fs';"
-            "console.log(JSON.stringify(validateTextFile(JSON.parse(readFileSync(0, 'utf8')))));"
-        )
-        result = subprocess.run(
-            [
-                shutil.which("node"),
-                "--experimental-strip-types",
-                "--input-type=module",
-                "-e",
-                script,
-            ],
-            input=json.dumps(data, ensure_ascii=False),
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        self.assertTrue(json.loads(result.stdout)["ok"], result.stdout)
+        result = reader_validation(data)
+        self.assertTrue(result["ok"], result)
 
     def test_output_collision_requires_explicit_overwrite(self):
         output = self.fixture.root / "out"
@@ -305,3 +305,195 @@ class ClaudeAnnotationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+from zh_preprocessor import skill  # noqa: E402
+
+GOOD_TOKENS = {
+    "我去银行。": [
+        {"t": "我", "py": "wǒ", "def": "I"},
+        {"t": "去", "py": "qù", "def": "to go"},
+        {"t": "银行", "py": "yínháng", "def": "bank"},
+        {"t": "。"},
+    ],
+    "今天我去。": [
+        {"t": "今天", "py": "jīntiān", "def": "today"},
+        {"t": "我", "py": "wǒ", "def": "I"},
+        {"t": "去", "py": "qù", "def": "to go"},
+        {"t": "。"},
+    ],
+}
+
+
+class SkillTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = Fixture()
+        self.root = self.fixture.root
+        self.output = self.root / "out"
+
+    def tearDown(self):
+        self.fixture.close()
+
+    def _prepare(self, text="我去银行。今天我去。\n\n我去银行。", **kwargs):
+        source = self.root / "input.txt"
+        source.write_text(text, encoding="utf-8")
+        options = {
+            "title": "Skill test",
+            "output_dir": self.output,
+            "work_root": self.root / "work",
+            "chunk_size": 2,
+            "cedict": self.fixture.cedict,
+            "hsk": self.fixture.hsk,
+        }
+        options.update(kwargs)
+        result = skill.prepare(source, **options)
+        return Path(result["workDir"]), result
+
+    def _write(self, work_dir, number, sentences):
+        path = skill._chunk_path(work_dir, number, "output")
+        path.write_text(json.dumps(sentences, ensure_ascii=False), encoding="utf-8")
+
+    def _good_output(self, work_dir, number):
+        chunk = json.loads(skill._chunk_path(work_dir, number, "input").read_text("utf-8"))
+        return [
+            {
+                "id": sentence["id"],
+                "translation": "A translation.",
+                "tokens": GOOD_TOKENS[sentence["text"]],
+            }
+            for sentence in chunk["sentences"]
+        ]
+
+    def _complete(self, work_dir):
+        while not (step := skill.next_chunk(work_dir))["done"]:
+            self._write(work_dir, step["chunk"], self._good_output(work_dir, step["chunk"]))
+            self.assertEqual(skill.validate(work_dir, step["chunk"])["status"], "done")
+
+    def test_prepare_writes_chunks_with_dictionary_candidates(self):
+        work_dir, result = self._prepare()
+        self.assertEqual(result["sentenceCount"], 3)
+        self.assertEqual(result["chunkCount"], 2)
+        self.assertEqual(result["chunksPending"], [1, 2])
+        chunk = json.loads(skill._chunk_path(work_dir, 1, "input").read_text("utf-8"))
+        self.assertEqual([s["id"] for s in chunk["sentences"]], ["p0s0", "p0s1"])
+        bank = chunk["sentences"][0]["tokens"][2]
+        self.assertEqual(bank["t"], "银行")
+        self.assertEqual(bank["candidates"], [{"py": "yín háng", "def": "bank"}])
+        self.assertEqual(chunk["sentences"][0]["tokens"][3], {"t": "。"})
+
+    def test_prepare_resumes_existing_work_without_resetting(self):
+        work_dir, _ = self._prepare()
+        self._write(work_dir, 1, self._good_output(work_dir, 1))
+        skill.validate(work_dir, 1)
+        _, again = self._prepare()
+        self.assertTrue(again["resumed"])
+        self.assertEqual(again["chunksDone"], 1)
+        self.assertEqual(again["chunksPending"], [2])
+        self.assertEqual(skill.next_chunk(work_dir)["chunk"], 2)
+
+    def test_prepare_refuses_output_inside_repository(self):
+        repository = Path(__file__).resolve().parents[2]
+        with self.assertRaises(skill.SkillError):
+            self._prepare(output_dir=repository / "out")
+
+    def test_validate_rejects_altered_text_dropped_token_and_missing_sentence(self):
+        work_dir, _ = self._prepare()
+        good = self._good_output(work_dir, 1)
+        cases = {
+            "altered": [{**good[0], "tokens": [{"t": "我", "py": "wǒ", "def": "I"},
+                                               {"t": "来", "py": "lái", "def": "come"},
+                                               {"t": "银行", "py": "yínháng", "def": "bank"},
+                                               {"t": "。"}]}, good[1]],
+            "dropped": [{**good[0], "tokens": good[0]["tokens"][:3]}, good[1]],
+            "missing": [good[1]],
+        }
+        lexicon = self.fixture.lexicon
+        chunk = json.loads(skill._chunk_path(work_dir, 1, "input").read_text("utf-8"))
+        for name, output in cases.items():
+            with self.subTest(name):
+                _, errors = skill.check_chunk_output(chunk, output, lexicon)
+                self.assertTrue(errors)
+        self.assertEqual(skill.check_chunk_output(chunk, good, lexicon)[1], [])
+
+    def test_validate_rejects_simplified_swap_in_traditional_text(self):
+        work_dir, _ = self._prepare(text="我去銀行。", script="trad")
+        swapped = [{"id": "p0s0", "translation": "I go to the bank.", "tokens": GOOD_TOKENS["我去银行。"]}]
+        self._write(work_dir, 1, swapped)
+        result = skill.validate(work_dir, 1)
+        self.assertEqual(result["status"], "retry")
+        self.assertIn("reconstruct", " ".join(result["errors"]))
+        kept = [{**swapped[0], "tokens": [*swapped[0]["tokens"][:2],
+                                          {"t": "銀行", "py": "yínháng", "def": "bank"},
+                                          {"t": "。"}]}]
+        self._write(work_dir, 1, kept)
+        self.assertEqual(skill.validate(work_dir, 1)["status"], "done")
+        result = json.loads(skill._chunk_path(work_dir, 1, "result").read_text("utf-8"))
+        self.assertEqual(result[0]["tokens"][2]["t"], "銀行")
+        self.assertEqual(result[0]["tokens"][2]["k"], "银行")
+
+    def test_validate_rejects_invented_definition_for_unknown_word(self):
+        work_dir, _ = self._prepare(text="我去北京。")
+        tokens = [{"t": "我", "py": "wǒ", "def": "I"}, {"t": "去", "py": "qù", "def": "to go"},
+                  {"t": "北京", "py": "Běijīng", "def": "Beijing"}, {"t": "。"}]
+        self._write(work_dir, 1, [{"id": "p0s0", "translation": "I go to Beijing.", "tokens": tokens}])
+        result = skill.validate(work_dir, 1)
+        self.assertIn(skill.UNAVAILABLE, " ".join(result["errors"]))
+        tokens[2]["def"] = skill.UNAVAILABLE
+        self._write(work_dir, 1, [{"id": "p0s0", "translation": "I go to Beijing.", "tokens": tokens}])
+        self.assertEqual(skill.validate(work_dir, 1)["status"], "done")
+
+    def test_three_failures_fall_back_to_local_annotation(self):
+        work_dir, _ = self._prepare()
+        for attempt in range(3):
+            self._write(work_dir, 1, [])
+            result = skill.validate(work_dir, 1)
+        self.assertEqual(result["status"], "fallback")
+        self._write(work_dir, 2, self._good_output(work_dir, 2))
+        skill.validate(work_dir, 2)
+        assembled = skill.assemble(work_dir)
+        self.assertEqual(assembled["chunksFallbackToLocal"], [1])
+        data = json.loads(Path(assembled["json"]).read_text("utf-8"))
+        first = data["paragraphs"][0]["sentences"][0]
+        self.assertEqual(first["translation"], "")
+        self.assertEqual({t.get("src") for t in first["tokens"] if not t.get("p")}, {"local"})
+        report = json.loads(Path(assembled["report"]).read_text("utf-8"))
+        self.assertEqual(report["sentencesFallbackToLocal"], 2)
+        self.assertEqual(report["mode"], "skill")
+
+    def test_assemble_refuses_pending_chunks(self):
+        work_dir, _ = self._prepare()
+        with self.assertRaises(skill.SkillError):
+            skill.assemble(work_dir)
+
+    def test_assemble_matches_local_cli_shape_and_passes_validators(self):
+        text = "我去银行。今天我去。\n\n我去银行。"
+        work_dir, _ = self._prepare(text=text)
+        self._complete(work_dir)
+        assembled = skill.assemble(work_dir)
+        data = json.loads(Path(assembled["json"]).read_text("utf-8"))
+        self.assertEqual(validate_text_file(data), [])
+        if shutil.which("node"):
+            self.assertTrue(reader_validation(data)["ok"])
+        lexicon = self.fixture.lexicon
+        local, _, _ = build_text_file(
+            text, "Skill test", "auto",
+            lambda s: ("", [lexicon.annotate(t) for t in lexicon.segment(s)], {}), lexicon,
+        )
+        self.assertEqual(data["textId"], local["textId"])
+        self.assertEqual(Path(assembled["json"]).name, f'{local["textId"]}.json')
+        ids = lambda d: [s["id"] for p in d["paragraphs"] for s in p["sentences"]]
+        self.assertEqual(ids(data), ids(local))
+        self.assertEqual(data["paragraphs"][0]["sentences"][0]["translation"], "A translation.")
+        self.assertTrue(Path(assembled["source"]).is_file())
+        self.assertTrue(Path(assembled["report"]).is_file())
+
+    def test_assemble_without_overwrite_leaves_existing_files_untouched(self):
+        work_dir, _ = self._prepare()
+        self._complete(work_dir)
+        assembled = skill.assemble(work_dir)
+        paths = [Path(assembled[key]) for key in ("json", "source", "report")]
+        before = [path.read_bytes() for path in paths]
+        exit_code = skill.main(["assemble", str(work_dir)])
+        self.assertEqual(exit_code, 2)
+        self.assertEqual([path.read_bytes() for path in paths], before)
+        self.assertEqual(skill.main(["assemble", str(work_dir), "--overwrite"]), 0)

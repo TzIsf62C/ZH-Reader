@@ -66,7 +66,7 @@ def _install_data(args: list[str]) -> int:
     return 0
 
 
-def _write_outputs(
+def write_outputs(
     output_dir: Path,
     text_id: str,
     data: dict,
@@ -119,6 +119,9 @@ def _write_outputs(
         for temporary in temporary_paths:
             temporary.unlink(missing_ok=True)
     return json_path, source_path, report_path
+
+
+_write_outputs = write_outputs
 
 
 def _run(args: list[str]) -> int:
@@ -190,7 +193,7 @@ def _run(args: list[str]) -> int:
     errors = validate_text_file(data)
     if errors:
         raise ValueError("Generated JSON failed schema-v1 validation: " + " ".join(errors))
-    json_path, source_path, report_path = _write_outputs(
+    json_path, source_path, report_path = write_outputs(
         options.out, data["textId"], data, normalized, report, options.overwrite
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -202,6 +205,10 @@ def _run(args: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    if args and args[0] == "skill":
+        from .skill import main as skill_main
+
+        return skill_main(args[1:])
     if args and args[0] == "setup-data":
         try:
             return _install_data(args[1:])

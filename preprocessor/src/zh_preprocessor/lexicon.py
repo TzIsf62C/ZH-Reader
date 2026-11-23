@@ -14,6 +14,7 @@ from pypinyin.contrib.tone_convert import to_tone
 
 from .text import HAN_PATTERN, canonical_simplified, canonical_traditional, is_han_word
 
+MAX_SENSES = 8  # per reading, keeps skill chunk files context-sized
 _CEDICT_ENTRY = re.compile(r"^(\S+)\s+(\S+)\s+\[([^\]]+)\]\s+/(.*)/$")
 
 
@@ -43,6 +44,7 @@ class Lexicon:
         self.cedict_path = cedict_path
         self.hsk_path = hsk_path
         self.entries: dict[str, DictionaryEntry] = {}
+        self.senses: dict[str, list[DictionaryEntry]] = {}
         self.hsk_levels: dict[str, str] = {}
         self._load_cedict()
         self._load_hsk()
@@ -67,6 +69,16 @@ class Lexicon:
                 definition="; ".join(definitions.split("/")[:3]),
             )
             self.entries.setdefault(key, entry)
+            self.senses.setdefault(key, []).append(
+                DictionaryEntry(
+                    simp=key,
+                    trad=entry.trad,
+                    py=entry.py,
+                    definition="; ".join(
+                        [sense for sense in definitions.split("/") if sense][:MAX_SENSES]
+                    ),
+                )
+            )
             loaded += 1
         if not loaded:
             raise ValueError(f"No valid CC-CEDICT entries found in {self.cedict_path}.")
@@ -147,6 +159,13 @@ class Lexicon:
             "countInText": 0,
             "hsk": self.hsk_levels.get(key),
         }
+
+    def candidates(self, token: str) -> list[dict[str, str]] | None:
+        """All CC-CEDICT readings for a word, or None when CC-CEDICT has no entry."""
+        entries = self.senses.get(canonical_simplified(token))
+        if not entries:
+            return None
+        return [{"py": entry.py, "def": entry.definition} for entry in entries]
 
     def __contains__(self, key: str) -> bool:
         return key in self.entries

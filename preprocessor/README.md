@@ -70,3 +70,43 @@ Run the preprocessor tests from this directory:
 ```bash
 PYTHONPATH=src python -m unittest discover -s tests -v
 ```
+
+## Skill mode (Claude Code, no API key)
+
+The repository includes a Claude Code skill at `.claude/skills/zh-reader-annotate/`. With it, Claude writes the
+translations and contextual glosses inside your Claude Code session, which counts against your plan instead
+of API billing. The output is the same three files as the CLI.
+
+Setup is the same as above: install the package dependencies (a venv or your system `python3`) and run
+`zh-preprocessor setup-data` once. Then start Claude Code in the repository and ask, for example:
+
+> Annotate ~/Downloads/story.txt for the reader, title "Story", traditional script.
+
+The skill runs `zh-preprocessor skill prepare|next|validate|assemble` through its bundled scripts:
+
+1. `prepare` normalizes and segments the text and looks up CC-CEDICT candidates, then writes chunks of about 20
+   sentences to `~/.cache/zh-reader-preprocessor/work/<hash>/`.
+2. Claude annotates one chunk at a time.
+3. `validate` checks each chunk:
+   - the tokens reconstruct the exact source, in its original script
+   - pinyin and gloss are present
+   - `[definition unavailable]` is used for non-CC-CEDICT words
+   - the chunk passes schema v1
+
+   A chunk that still fails after 2 retries keeps its local annotation.
+4. `assemble` writes `<hash>.json`, `.source.txt` and `.report.json` to `~/Documents/zh-reader-out` by default.
+   It never overwrites existing files unless you ask. Output and work directories inside the repository are refused.
+
+Runs are resumable: if a session is interrupted, ask again with the same file, and completed chunks are kept.
+
+| Area | API mode | Skill mode |
+|---|---|---|
+| Billing | Per token, with `--max-cost` preflight | Counts against plan limits |
+| Cost control | Estimate before the first request | None; large books use a lot of allowance |
+| Cache | SQLite by sentence, model, and prompt version | Work directory per text only |
+| Isolation | Model has no tools | Model has tool access |
+| Retries | Automatic in code | Driven by Claude following the skill |
+
+**Prompt-injection risk:** in skill mode Claude has tool access, so instructions hidden in a source text are a
+risk. The skill tells Claude to treat the text as data and to run only its bundled scripts. That reduces the risk
+but does not remove it. Process only texts you trust.

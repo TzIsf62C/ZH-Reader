@@ -34,6 +34,48 @@ class AnnotationError(RuntimeError):
     pass
 
 
+def make_tokens(
+    expected_sentence: str, translation: str, annotated_tokens: list[Any]
+) -> tuple[str, list[dict[str, str | bool]]]:
+    """Validate model-written tokens and convert them to schema-v1 tokens."""
+    if (
+        not isinstance(translation, str)
+        or not translation.strip()
+        or not isinstance(annotated_tokens, list)
+    ):
+        raise AnnotationError("Claude annotation has invalid field types.")
+    tokens: list[dict[str, str | bool]] = []
+    for item in annotated_tokens:
+        if not isinstance(item, dict) or not isinstance(item.get("t"), str) or not item["t"]:
+            raise AnnotationError("Claude returned a malformed token.")
+        token_text = item["t"]
+        if contains_han(token_text) and not is_han_word(token_text):
+            raise AnnotationError(f'Mixed word and non-word token "{token_text}".')
+        if is_han_word(token_text):
+            pinyin = item.get("py")
+            definition = item.get("def")
+            if not isinstance(pinyin, str) or not pinyin.strip():
+                raise AnnotationError(f'Claude omitted pinyin for "{token_text}".')
+            if not isinstance(definition, str) or not definition.strip():
+                raise AnnotationError(f'Claude omitted a gloss for "{token_text}".')
+            tokens.append(
+                {
+                    "t": token_text,
+                    "k": canonical_simplified(token_text),
+                    "py": pinyin.strip(),
+                    "def": definition.strip(),
+                    "src": "claude",
+                }
+            )
+        else:
+            tokens.append({"t": token_text, "p": True})
+    if not tokens:
+        raise AnnotationError("Claude returned an empty token list.")
+    if "".join(str(token["t"]) for token in tokens) != expected_sentence:
+        raise AnnotationError("Claude tokens do not reconstruct the source sentence.")
+    return translation.strip(), tokens
+
+
 class ClaudeAnnotator:
     def __init__(
         self,
@@ -264,42 +306,7 @@ class ClaudeAnnotator:
     def _make_tokens(
         self, expected_sentence: str, translation: str, annotated_tokens: list[Any]
     ) -> tuple[str, list[dict[str, str | bool]]]:
-        if (
-            not isinstance(translation, str)
-            or not translation.strip()
-            or not isinstance(annotated_tokens, list)
-        ):
-            raise AnnotationError("Claude annotation has invalid field types.")
-        tokens: list[dict[str, str | bool]] = []
-        for item in annotated_tokens:
-            if not isinstance(item, dict) or not isinstance(item.get("t"), str) or not item["t"]:
-                raise AnnotationError("Claude returned a malformed token.")
-            token_text = item["t"]
-            if contains_han(token_text) and not is_han_word(token_text):
-                raise AnnotationError(f'Mixed word and non-word token "{token_text}".')
-            if is_han_word(token_text):
-                pinyin = item.get("py")
-                definition = item.get("def")
-                if not isinstance(pinyin, str) or not pinyin.strip():
-                    raise AnnotationError(f'Claude omitted pinyin for "{token_text}".')
-                if not isinstance(definition, str) or not definition.strip():
-                    raise AnnotationError(f'Claude omitted a gloss for "{token_text}".')
-                tokens.append(
-                    {
-                        "t": token_text,
-                        "k": canonical_simplified(token_text),
-                        "py": pinyin.strip(),
-                        "def": definition.strip(),
-                        "src": "claude",
-                    }
-                )
-            else:
-                tokens.append({"t": token_text, "p": True})
-        if not tokens:
-            raise AnnotationError("Claude returned an empty token list.")
-        if "".join(str(token["t"]) for token in tokens) != expected_sentence:
-            raise AnnotationError("Claude tokens do not reconstruct the source sentence.")
-        return translation.strip(), tokens
+        return make_tokens(expected_sentence, translation, annotated_tokens)
 
     def _estimate_cost(self, sentence: str) -> float:
         input_tokens = (len(SYSTEM_PROMPT) + 2) // 3 + len(sentence)

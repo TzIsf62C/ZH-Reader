@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from collections import Counter
 from datetime import date
+from pathlib import Path
 from typing import Callable
 
 from .lexicon import Lexicon
