@@ -1,0 +1,650 @@
+{
+ "schemaVersion": 1,
+ "textId": "834c3fa82431cc84a7f1c77f780744ea795cae8c",
+ "title": "去银行 (simplified sample)",
+ "script": "simp",
+ "createdAt": "2026-11-22",
+ "stats": {
+  "wordCount": 39,
+  "uniqueWords": 30,
+  "hskCoverage": {
+   "1": 0.5128,
+   "2": 0.1282,
+   "3": 0.2564,
+   "4": 0.0513,
+   "none": 0.0256,
+   "7-9": 0.0256
+  }
+ },
+ "paragraphs": [
+  {
+   "sentences": [
+    {
+     "id": "p0s0",
+     "translation": "Today I went to the bank.",
+     "tokens": [
+      {
+       "t": "今天",
+       "k": "今天",
+       "py": "jīntiān",
+       "def": "today",
+       "src": "claude"
+      },
+      {
+       "t": "我",
+       "k": "我",
+       "py": "wǒ",
+       "def": "I; me",
+       "src": "claude"
+      },
+      {
+       "t": "去",
+       "k": "去",
+       "py": "qù",
+       "def": "to go",
+       "src": "claude"
+      },
+      {
+       "t": "银行",
+       "k": "银行",
+       "py": "yínháng",
+       "def": "bank",
+       "src": "claude"
+      },
+      {
+       "t": "。",
+       "p": true
+      }
+     ]
+    },
+    {
+     "id": "p0s1",
+     "translation": "There were a lot of people in the bank.",
+     "tokens": [
+      {
+       "t": "银行",
+       "k": "银行",
+       "py": "yínháng",
+       "def": "bank",
+       "src": "claude"
+      },
+      {
+       "t": "里",
+       "k": "里",
+       "py": "lǐ",
+       "def": "inside",
+       "src": "claude"
+      },
+      {
+       "t": "有",
+       "k": "有",
+       "py": "yǒu",
+       "def": "to have; there is",
+       "src": "claude"
+      },
+      {
+       "t": "很多",
+       "k": "很多",
+       "py": "hěnduō",
+       "def": "many; a lot",
+       "src": "claude"
+      },
+      {
+       "t": "人",
+       "k": "人",
+       "py": "rén",
+       "def": "person; people",
+       "src": "claude"
+      },
+      {
+       "t": "。",
+       "p": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "sentences": [
+    {
+     "id": "p1s0",
+     "translation": "I arrived at the bank at 9 o’clock.",
+     "tokens": [
+      {
+       "t": "我",
+       "k": "我",
+       "py": "wǒ",
+       "def": "I; me",
+       "src": "claude"
+      },
+      {
+       "t": "9",
+       "p": true
+      },
+      {
+       "t": "点",
+       "k": "点",
+       "py": "diǎn",
+       "def": "o'clock; point",
+       "src": "claude"
+      },
+      {
+       "t": "到",
+       "k": "到",
+       "py": "dào",
+       "def": "to arrive",
+       "src": "claude"
+      },
+      {
+       "t": "了",
+       "k": "了",
+       "py": "le",
+       "def": "completed-action particle",
+       "src": "claude"
+      },
+      {
+       "t": "银行",
+       "k": "银行",
+       "py": "yínháng",
+       "def": "bank",
+       "src": "claude"
+      },
+      {
+       "t": "。",
+       "p": true
+      }
+     ]
+    },
+    {
+     "id": "p1s1",
+     "translation": "I wanted to exchange money, but I did not bring my passport.",
+     "tokens": [
+      {
+       "t": "我",
+       "k": "我",
+       "py": "wǒ",
+       "def": "I; me",
+       "src": "claude"
+      },
+      {
+       "t": "想",
+       "k": "想",
+       "py": "xiǎng",
+       "def": "to want; to think",
+       "src": "claude"
+      },
+      {
+       "t": "换",
+       "k": "换",
+       "py": "huàn",
+       "def": "to exchange",
+       "src": "claude"
+      },
+      {
+       "t": "钱",
+       "k": "钱",
+       "py": "qián",
+       "def": "money",
+       "src": "claude"
+      },
+      {
+       "t": "，",
+       "p": true
+      },
+      {
+       "t": "但是",
+       "k": "但是",
+       "py": "dànshì",
+       "def": "but",
+       "src": "claude"
+      },
+      {
+       "t": "我",
+       "k": "我",
+       "py": "wǒ",
+       "def": "I; me",
+       "src": "claude"
+      },
+      {
+       "t": "没有",
+       "k": "没有",
+       "py": "méiyǒu",
+       "def": "not have",
+       "src": "claude"
+      },
+      {
+       "t": "带",
+       "k": "带",
+       "py": "dài",
+       "def": "to bring; to carry",
+       "src": "claude"
+      },
+      {
+       "t": "护照",
+       "k": "护照",
+       "py": "hùzhào",
+       "def": "passport",
+       "src": "claude"
+      },
+      {
+       "t": "。",
+       "p": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "sentences": [
+    {
+     "id": "p2s0",
+     "translation": "The staff member said, “Come back tomorrow.”",
+     "tokens": [
+      {
+       "t": "工作人员",
+       "k": "工作人员",
+       "py": "gōngzuò rényuán",
+       "def": "staff member",
+       "src": "claude"
+      },
+      {
+       "t": "说",
+       "k": "说",
+       "py": "shuō",
+       "def": "to say; to speak",
+       "src": "claude"
+      },
+      {
+       "t": "：",
+       "p": true
+      },
+      {
+       "t": "“",
+       "p": true
+      },
+      {
+       "t": "明天",
+       "k": "明天",
+       "py": "míngtiān",
+       "def": "tomorrow",
+       "src": "claude"
+      },
+      {
+       "t": "再",
+       "k": "再",
+       "py": "zài",
+       "def": "again",
+       "src": "claude"
+      },
+      {
+       "t": "来",
+       "k": "来",
+       "py": "lái",
+       "def": "to come",
+       "src": "claude"
+      },
+      {
+       "t": "吧",
+       "k": "吧",
+       "py": "ba",
+       "def": "suggestion particle",
+       "src": "claude"
+      },
+      {
+       "t": "。",
+       "p": true
+      },
+      {
+       "t": "”",
+       "p": true
+      }
+     ]
+    },
+    {
+     "id": "p2s1",
+     "translation": "I was a little disappointed, but I stayed polite.",
+     "tokens": [
+      {
+       "t": "我",
+       "k": "我",
+       "py": "wǒ",
+       "def": "I; me",
+       "src": "local"
+      },
+      {
+       "t": "有点儿",
+       "k": "有点儿",
+       "py": "yǒudiǎnr",
+       "def": "a little; somewhat",
+       "src": "local"
+      },
+      {
+       "t": "失望",
+       "k": "失望",
+       "py": "shīwàng",
+       "def": "disappointed",
+       "src": "local"
+      },
+      {
+       "t": "，",
+       "p": true
+      },
+      {
+       "t": "可是",
+       "k": "可是",
+       "py": "kěshì",
+       "def": "but; however",
+       "src": "local"
+      },
+      {
+       "t": "还是",
+       "k": "还是",
+       "py": "háishi",
+       "def": "still; nevertheless",
+       "src": "local"
+      },
+      {
+       "t": "很",
+       "k": "很",
+       "py": "hěn",
+       "def": "very",
+       "src": "local"
+      },
+      {
+       "t": "客气",
+       "k": "客气",
+       "py": "kèqi",
+       "def": "polite",
+       "src": "local"
+      },
+      {
+       "t": "。",
+       "p": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "sentences": [
+    {
+     "id": "p3s0",
+     "translation": "",
+     "tokens": [
+      {
+       "t": "银行",
+       "k": "银行",
+       "py": "yínháng",
+       "def": "bank",
+       "src": "local"
+      },
+      {
+       "t": "里",
+       "k": "里",
+       "py": "lǐ",
+       "def": "inside",
+       "src": "local"
+      },
+      {
+       "t": "有",
+       "k": "有",
+       "py": "yǒu",
+       "def": "to have; there is",
+       "src": "local"
+      },
+      {
+       "t": "ATM",
+       "p": true
+      },
+      {
+       "t": "。",
+       "p": true
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "words": {
+  "今天": {
+   "simp": "今天",
+   "trad": "今天",
+   "py": "jīntiān",
+   "def": "today",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "我": {
+   "simp": "我",
+   "trad": "我",
+   "py": "wǒ",
+   "def": "I; me",
+   "countInText": 5,
+   "hsk": "1"
+  },
+  "去": {
+   "simp": "去",
+   "trad": "去",
+   "py": "qù",
+   "def": "to go",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "银行": {
+   "simp": "银行",
+   "trad": "銀行",
+   "py": "yínháng",
+   "def": "bank",
+   "countInText": 4,
+   "hsk": "3"
+  },
+  "里": {
+   "simp": "里",
+   "trad": "裡",
+   "py": "lǐ",
+   "def": "inside",
+   "countInText": 2,
+   "hsk": "2"
+  },
+  "有": {
+   "simp": "有",
+   "trad": "有",
+   "py": "yǒu",
+   "def": "to have; there is",
+   "countInText": 2,
+   "hsk": "1"
+  },
+  "很多": {
+   "simp": "很多",
+   "trad": "很多",
+   "py": "hěnduō",
+   "def": "many; a lot",
+   "countInText": 1,
+   "hsk": "2"
+  },
+  "人": {
+   "simp": "人",
+   "trad": "人",
+   "py": "rén",
+   "def": "person; people",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "点": {
+   "simp": "点",
+   "trad": "點",
+   "py": "diǎn",
+   "def": "o'clock; point",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "到": {
+   "simp": "到",
+   "trad": "到",
+   "py": "dào",
+   "def": "to arrive",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "了": {
+   "simp": "了",
+   "trad": "了",
+   "py": "le",
+   "def": "completed-action particle",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "想": {
+   "simp": "想",
+   "trad": "想",
+   "py": "xiǎng",
+   "def": "to want; to think",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "换": {
+   "simp": "换",
+   "trad": "換",
+   "py": "huàn",
+   "def": "to exchange",
+   "countInText": 1,
+   "hsk": "3"
+  },
+  "钱": {
+   "simp": "钱",
+   "trad": "錢",
+   "py": "qián",
+   "def": "money",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "但是": {
+   "simp": "但是",
+   "trad": "但是",
+   "py": "dànshì",
+   "def": "but",
+   "countInText": 1,
+   "hsk": "3"
+  },
+  "没有": {
+   "simp": "没有",
+   "trad": "沒有",
+   "py": "méiyǒu",
+   "def": "not have",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "带": {
+   "simp": "带",
+   "trad": "帶",
+   "py": "dài",
+   "def": "to bring; to carry",
+   "countInText": 1,
+   "hsk": "3"
+  },
+  "护照": {
+   "simp": "护照",
+   "trad": "護照",
+   "py": "hùzhào",
+   "def": "passport",
+   "countInText": 1,
+   "hsk": null
+  },
+  "工作人员": {
+   "simp": "工作人员",
+   "trad": "工作人員",
+   "py": "gōngzuò rényuán",
+   "def": "staff member",
+   "countInText": 1,
+   "hsk": "7-9"
+  },
+  "说": {
+   "simp": "说",
+   "trad": "說",
+   "py": "shuō",
+   "def": "to say; to speak",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "明天": {
+   "simp": "明天",
+   "trad": "明天",
+   "py": "míngtiān",
+   "def": "tomorrow",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "再": {
+   "simp": "再",
+   "trad": "再",
+   "py": "zài",
+   "def": "again",
+   "countInText": 1,
+   "hsk": "2"
+  },
+  "来": {
+   "simp": "来",
+   "trad": "來",
+   "py": "lái",
+   "def": "to come",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "吧": {
+   "simp": "吧",
+   "trad": "吧",
+   "py": "ba",
+   "def": "suggestion particle",
+   "countInText": 1,
+   "hsk": "2"
+  },
+  "有点儿": {
+   "simp": "有点儿",
+   "trad": "有點兒",
+   "py": "yǒudiǎnr",
+   "def": "a little; somewhat",
+   "countInText": 1,
+   "hsk": "3"
+  },
+  "失望": {
+   "simp": "失望",
+   "trad": "失望",
+   "py": "shīwàng",
+   "def": "disappointed",
+   "countInText": 1,
+   "hsk": "4"
+  },
+  "可是": {
+   "simp": "可是",
+   "trad": "可是",
+   "py": "kěshì",
+   "def": "but; however",
+   "countInText": 1,
+   "hsk": "3"
+  },
+  "还是": {
+   "simp": "还是",
+   "trad": "還是",
+   "py": "háishi",
+   "def": "still; nevertheless",
+   "countInText": 1,
+   "hsk": "3"
+  },
+  "很": {
+   "simp": "很",
+   "trad": "很",
+   "py": "hěn",
+   "def": "very",
+   "countInText": 1,
+   "hsk": "1"
+  },
+  "客气": {
+   "simp": "客气",
+   "trad": "客氣",
+   "py": "kèqi",
+   "def": "polite",
+   "countInText": 1,
+   "hsk": "4"
+  }
+ }
+}
