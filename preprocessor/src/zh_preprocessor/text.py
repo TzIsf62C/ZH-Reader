@@ -64,10 +64,22 @@ def detect_script(text: str) -> ScriptDetection:
 
 
 def split_sentences(paragraph: str, paragraph_index: int) -> list[Sentence]:
+    """Split at sentence-ending punctuation (with any closing quotes) and at line breaks.
+
+    A line break ends a sentence even without punctuation, so headings, list items and table
+    rows are their own sentences. The newline begins the next sentence, so the sentences
+    still join to the paragraph exactly.
+    """
     sentences: list[str] = []
     start = 0
     index = 0
     while index < len(paragraph):
+        if paragraph[index] == "\n":
+            if index > start:
+                sentences.append(paragraph[start:index])
+                start = index
+            index += 1
+            continue
         if paragraph[index] not in _ENDINGS:
             index += 1
             continue

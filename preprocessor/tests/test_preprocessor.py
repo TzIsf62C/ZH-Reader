@@ -86,6 +86,29 @@ class TextProcessingTests(unittest.TestCase):
         self.assertEqual([sentence.text for sentence in sentences], ["他说：「好。」", "然后走！"])
         self.assertEqual([sentence.id for sentence in sentences], ["p0s0", "p0s1"])
 
+    def test_line_break_ends_a_sentence_without_punctuation(self):
+        paragraph = normalize_text(
+            "哪些情節挑戰會升級普爾亞平板？（5 個）\n"
+            "#\t情節挑戰\t起點\t委託人\t獎勵\n"
+            "1\t哈特諾村的研究所\t監視堡壘\t洛貝利\t神廟感應器\n"
+            "3\t重大發明！傳送標記器！！\t哈特諾古代研究所\t洛貝利\t傳送標記器"
+        )
+        texts = [sentence.text for sentence in split_sentences(paragraph, 0)]
+        self.assertEqual(texts, [
+            "哪些情節挑戰會升級普爾亞平板？",
+            "（5 個）",
+            "\n# 情節挑戰 起點 委託人 獎勵",
+            "\n1 哈特諾村的研究所 監視堡壘 洛貝利 神廟感應器",
+            "\n3 重大發明！",
+            "傳送標記器！！",
+            " 哈特諾古代研究所 洛貝利 傳送標記器",
+        ])
+        self.assertEqual("".join(texts), paragraph)
+
+    def test_line_break_after_punctuation_adds_no_empty_sentence(self):
+        texts = [s.text for s in split_sentences("你好。\n「再見！」\n好", 0)]
+        self.assertEqual(texts, ["你好。", "\n「再見！」", "\n好"])
+
 
 class LocalPipelineTests(unittest.TestCase):
     def setUp(self):

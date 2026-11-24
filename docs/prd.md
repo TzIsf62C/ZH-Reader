@@ -59,7 +59,7 @@ The Claude API key comes from an environment variable and is never written to th
 
 1. **Normalize input.** Read the text as UTF-8, normalize line endings and whitespace, and preserve paragraph breaks. Keep a copy of the original text.
 2. **Detect script.** In `auto` mode, compare the text with its OpenCC `t2s` conversion to classify it. Log the ratio, and let the flag override it. Flag mixed text in the report.
-3. **Split sentences.** Split on Chinese sentence-ending punctuation, keeping closing quotes with their sentence. Assign stable IDs (for example, `p0s0`).
+3. **Split sentences.** Split on Chinese sentence-ending punctuation, keeping closing quotes with their sentence, and at every line break, so headings, list items and table rows without punctuation are separate sentences. The line break begins the next sentence. Assign stable IDs (for example, `p0s0`).
 4. **Segment and annotate.**
    - In `claude` mode, send sentence-sized chunks and request word boundaries, contextual pinyin with tone marks, and a short English gloss per word. Also request a natural English translation per sentence.
    - In `local` mode, use a local segmenter plus CC-CEDICT, and leave translations empty.
