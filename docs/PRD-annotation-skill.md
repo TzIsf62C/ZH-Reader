@@ -164,6 +164,7 @@ Every row has a `kind`:
 | `override` | A `term` whose string is also an unrelated CC-CEDICT entry | Like `term` | Wins over CC-CEDICT for this domain |
 
 - **`term` rows hold bare names only.** 哈特諾 is the `term` and 哈特諾村 is a `name`, because 村 is a dictionary word whose exposure would otherwise be hidden. A full name keeps its own `name` row so translations use the official English ("Hateno Village").
+- **Rows only where the English is not evident.** A name whose English is a direct translation of its characters needs no row: 大橋 in 塔邦撻大橋驛站 is just "bridge". 雙子 gets an `override` row because "Dueling Peaks" cannot be read from the characters, and CC-CEDICT's only entry is "Gemini".
 - `term` may be traditional or simplified. The loader indexes both forms by simplified key, as with CC-CEDICT.
 - `english` is the gloss: 12 words or fewer, usually the official localized name.
 - `source` is required: a URL, or `derived` when the row is a substring of a sourced row. The `note` then names that row.
@@ -181,9 +182,12 @@ Every row has a `kind`:
 | G6 | **Report.** `definitionSources` gains a `glossary` count, and a `glossaryTerms` list gives each matched term with its file and source. |
 | G7 | **Gap harvest.** A new `gaps` command lists every gap word across the whole text with its frequency and one example sentence. It runs locally, so the user sees what to add to the glossary before spending tokens on annotation. It runs after G2, so known terms are already joined; without that step most gaps are fragments of split names (see Findings). |
 | G8 | **Translation names.** Each chunk input gets a `names` list: every `name` row (and every `term`) whose string occurs in the chunk, with its `english`. Claude uses these in sentence translations. They do not change tokens. |
+| G10 | **Longest match.** After segmentation, a token that contains a `term` or `override` is re-split: the longest glossary match becomes one token and the remainder is split into CC-CEDICT words (依蓋隊基地 → 依蓋 / 隊 / 基地, 加力普們 → 加力普 / 們). A remainder that is not in CC-CEDICT stays a gap. A dictionary word whose only senses are an unrelated proper name is split the same way when its characters are used plainly (大橋 "Da Qiao" → 大 / 橋). |
 | G9 | **Validator senses.** The validator checks a gloss against the word's full CC-CEDICT senses, not the shortened candidate text shown to Claude. Variant readings such as 著 zhe are included for traditional text. (Found in testing; this applies with or without glossaries.) |
 
 ### Building a glossary
+
+This is the skill's **default workflow** whenever the user asks for a glossary to be created, or a glossary already exists for the text's domain (decided 2026-11-23). The skill's `reference/glossaries.md` describes it. Until G1–G10 are built, the skill applies the glossary by hand while writing each chunk.
 
 1. Run `prepare`, then `gaps`, on the new text. This is local and costs no tokens.
 2. Fill only the listed gaps, preferably from bulk sources: one list page gives dozens of rows. Candidates are wiki tables of official names in other languages, such as Zelda Wiki's "Names in Other Regions", or Chinese fan-wiki item, enemy and location lists. Check each site's current layout before relying on it. Use term-by-term search only for leftovers.
@@ -215,9 +219,9 @@ The workflow was tested by hand, before any code existed, on a QuestFern walkthr
 | 1 | The raw gap list was unusable: 184 entries, mostly fragments of names that jieba split (哈特 + 諾村, 德依 + 布朗). The real terms had to be picked out of the text by hand. | G7 runs after G2. For a new domain with no glossary yet, Claude reads the text to propose candidate terms. |
 | 2 | Many official names are built from dictionary words (怪物精華, 心之容器, quest titles). Making them single tokens would hide 怪物 and 精華 from exposure counts. | `kind` column: `name` rows are used for translation only (G8). |
 | 3 | `term` rows with generic suffixes (哈特諾村, 德依布朗遺跡, 奧爾汀峽谷) hid 村, 遺跡 and 峽谷. Bare names that appeared on their own (哈特諾, 瑪麗塔, 格魯德) had no rows and needed ad-hoc contextual glosses. | `term` rows hold bare names only. The TotK glossary was restructured to match. |
-| 4 | "CC-CEDICT wins" breaks on unrelated collisions. 畢茲 (Beetz) is "QNB (quinuclidinyl benzilate)" in CC-CEDICT. Two dictionary entries that exist only as proper names also mis-segmented generic phrases: 大橋 is "Da Qiao" and 雙子 is "Gemini", inside 塔邦撻大橋驛站 and 雙子驛站. | `override` kind for collisions like 畢茲. Proper-name-only entries inside `name` rows are an open question. |
+| 4 | "CC-CEDICT wins" breaks on unrelated collisions. 畢茲 (Beetz) is "QNB (quinuclidinyl benzilate)" in CC-CEDICT. Two dictionary entries that exist only as proper names also mis-segmented generic phrases: 大橋 is "Da Qiao" and 雙子 is "Gemini", inside 塔邦撻大橋驛站 and 雙子驛站. | `override` kind for collisions like 畢茲 and 雙子 (Dueling Peaks; the English is not evident from the characters). 大橋 needs no row because its English is a direct translation; it is split into 大 / 橋 by G10. |
 | 5 | The validator rejected correct senses that fall past the shortened candidate text: 帶 "to take along", 點 "point". It offers no 著 zhe reading in traditional text, so the gloss had to carry awkward wording to pass. | G9. |
-| 6 | Sentence splitting cuts quest titles at "！" (重大發明！ / 傳送標記器！！), so translations span fragments. | Open question; not specific to glossaries. |
+| 6 | Sentence splitting cuts quest titles at "！" (重大發明！ / 傳送標記器！！), so translations span fragments. | Accepted: a quest title may span several sentences. |
 | 7 | Glossary rows matched to a different game's entry (Breath of the Wild, Echoes of Wisdom) with the same Traditional Chinese string were accepted by the user as series-wide names, as were rows derived from a longer sourced string. Rows with no Traditional Chinese source were dropped. | Recorded in each row's `note` and `source`. Review asks about these three groups separately. |
 
 ### Milestones
@@ -236,7 +240,8 @@ The workflow was tested by hand, before any code existed, on a QuestFern walkthr
 - [ ] A glossary `term` splits as a single token even where jieba would split it otherwise (加力普等 → 加力普 / 等).
 - [ ] A `name` row does not change segmentation: 怪物精華 stays 怪物 / 精華, and its English name appears in `names`.
 - [ ] A glossary term reaches Claude with candidates and is not listed in `gaps`.
-- [ ] A `term` that is also in CC-CEDICT is treated as `dictionary`; an `override` is treated as `glossary` (畢茲 → Beetz).
+- [ ] A `term` that is also in CC-CEDICT is treated as `dictionary`; an `override` is treated as `glossary` (畢茲 → Beetz, 雙子 → Dueling Peaks).
+- [ ] The longest glossary match wins and the remainder is split into dictionary words (依蓋隊基地 → 依蓋 / 隊 / 基地; 塔邦撻大橋驛站 → 塔邦撻 / 大 / 橋 / 驛站).
 - [ ] The validator rejects a `glossary` gloss that shares no word with the row's `english`.
 - [ ] The validator accepts a gloss from any full CC-CEDICT sense (帶 "to take along").
 - [ ] The report counts and lists glossary terms with their sources.
@@ -246,7 +251,10 @@ The workflow was tested by hand, before any code existed, on a QuestFern walkthr
 
 - **Reader display.** Should the reader eventually show glossary glosses, labeled with their source, in the word panel? That needs a reader change, so it is out of scope here.
 - **Sharing.** Should glossaries be versioned, such as in a separate repository, so they can be reused and corrected over time?
-- **Partial matches.** Should a glossary term that is part of a longer non-dictionary token (加力普 inside 加力普們) be split out automatically, or left to Claude?
-- **Proper-name-only dictionary entries.** CC-CEDICT entries that exist only as a proper name (大橋 "Da Qiao", 雙子 "Gemini") make jieba merge generic phrases inside official names. Should a `name` row be able to give its own segmentation (塔邦撻 / 大 / 橋 / 驛站), or should Claude keep splitting these by hand?
-- **Title-aware sentence splitting.** Should the splitter avoid breaking at "！" inside 「」 or inside a known `name` row, so quest titles stay in one sentence?
-- **Default workflow.** When the user names a domain ("annotate this TotK walkthrough"), should the skill look up that domain's glossary automatically, propose rows for new gaps and ask for review before annotating?
+
+### Decisions (2026-11-23)
+
+- **Partial matches:** take the longest glossary match; what remains must be split into dictionary words (G10).
+- **Proper-name-only dictionary entries:** no glossary row when the English is a direct translation (大橋 → 大 / 橋). Use an `override` row when it is not (雙子 → Dueling Peaks).
+- **Sentence splitting:** a quest title may span several sentences; no title-aware splitting.
+- **Default workflow:** the glossary workflow is the default when the user asks for a glossary or one exists for the domain.

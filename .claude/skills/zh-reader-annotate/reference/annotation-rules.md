@@ -17,6 +17,8 @@
   - **Keep one token** only for proper names and fixed proper terms whose parts would mislead if glossed separately: person, place and organization names, titles, and named in-universe things such as game items, abilities and creatures (`皮克敏`, `歐擬蛹`). These follow "Filling dictionary gaps".
   - **Never merge** dictionary words into a longer token that is not in CC-CEDICT, except to rejoin such a name or term.
   - If you are unsure whether a token is a fixed term, split it.
+  - **Split a dictionary word whose only senses are an unrelated proper name**, when the characters are used in their plain meaning: in 塔邦撻大橋驛站, `大橋` is only "Da Qiao" in CC-CEDICT, so write `大` + `橋` (big + bridge).
+  - **With a domain glossary**, take the longest glossary `term` or `override` first and split what remains into CC-CEDICT words (`依蓋隊基地` → `依蓋` + `隊` + `基地`). See [glossaries.md](glossaries.md).
 - The `t` values must still join to `text` exactly. Copy the characters; never retype them in another script.
 - Keep punctuation, digits, Latin letters and spaces in their own tokens with only `t`, as in the input. Never attach punctuation to a Chinese word.
 
