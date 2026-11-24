@@ -31,7 +31,7 @@ If you merge tokens into a word that has no `gaps` entry, validation shows its c
 
 `basis` is an object: `{"kind": <kind>, "note": <the evidence, 200 characters or fewer>}`.
 
-- `transparent_compound`: a modern compound whose meaning is the plain sum of its dictionary parts, often with a productive suffix such as 器 (device), 机 (machine), 化 (-ize), 性 (-ity), 者 (-er). The note names the parts: `滤 to filter + 水 water + 器 device`.
+- `transparent_compound`: a modern compound whose meaning is the plain sum of its dictionary parts, often with a productive suffix such as 器 (device), 机 (machine), 化 (-ize), 性 (-ity), 者 (-er). The note names the parts: `滤 to filter + 水 water + 器 device`. Segmentation rules in [annotation-rules.md](annotation-rules.md) say to split such a word into its dictionary parts, so this applies only to a fixed proper term kept as one token, or to a word whose parts are not all in CC-CEDICT.
 - `components`: the meaning follows from the dictionary meanings of the parts, but less literally than a transparent compound. The note names the parts and how they combine.
 - `sentence_context`: the text itself establishes the meaning, for example by explaining it or by an unambiguous apposition. The note quotes the supporting words.
 - `identified_referent`: the text identifies a specific real person, organization or place that is not in CC-CEDICT. The note quotes the identifying words: a role, title, work, event or an earlier full introduction. Use it only for names; see below.

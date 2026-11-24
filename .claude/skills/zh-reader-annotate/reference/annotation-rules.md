@@ -11,8 +11,12 @@
   - Write the pinyin with tone marks and capitalized, the same way as in the token.
 
 ## Segmentation
-- Start from the input `tokens`. Change the segmentation only where jieba is clearly wrong for this context, for example a split word (`银` + `行` → `银行`), a wrongly merged phrase, or a name broken apart.
-- Prefer segments that exist in CC-CEDICT, meaning tokens with non-null `candidates`. A merged token that is not in CC-CEDICT must take `[definition unavailable]`, so merge only for real words or proper names.
+- Start from the input `tokens`. Fix them where jieba is wrong for this context, for example a split word (`银` + `行` → `银行`), a wrongly merged phrase, or a name broken apart.
+- Every word token should be a CC-CEDICT word where possible, because the reader counts exposure per dictionary word. A merged token hides its parts from those counts.
+  - **Split** any token that is not in CC-CEDICT (`candidates` is `null`) into its CC-CEDICT parts, even if jieba produced it as one token: `暖陽` → `暖` + `陽`, `獲救者` → `獲救` + `者`, `試玩版` → `試玩` + `版`. Use the chunk's `gaps` `components` to find the parts, preferring the longest dictionary words (`獲救` + `者`, not `獲` + `救` + `者`).
+  - **Keep one token** only for proper names and fixed proper terms whose parts would mislead if glossed separately: person, place and organization names, titles, and named in-universe things such as game items, abilities and creatures (`皮克敏`, `歐擬蛹`). These follow "Filling dictionary gaps".
+  - **Never merge** dictionary words into a longer token that is not in CC-CEDICT, except to rejoin such a name or term.
+  - If you are unsure whether a token is a fixed term, split it.
 - The `t` values must still join to `text` exactly. Copy the characters; never retype them in another script.
 - Keep punctuation, digits, Latin letters and spaces in their own tokens with only `t`, as in the input. Never attach punctuation to a Chinese word.
 
