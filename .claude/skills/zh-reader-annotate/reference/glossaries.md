@@ -44,11 +44,12 @@ Show a short summary and ask about the uncertain groups separately, for example:
 Write only the accepted rows to `<domain>.tsv` (append them if it exists), keeping the header comments. Never change `<domain>.tsv` without the user's approval.
 
 ### 5. Annotate with the glossary
-Until `prepare.py` supports `--glossary`, apply the glossary by hand while writing each chunk:
-- **Segmentation**: in each token or run of tokens, find the **longest** `term` or `override` that matches, make it one token, and split what remains into CC-CEDICT words (依蓋隊基地 → 依蓋 + 隊 + 基地). If a remainder is not in CC-CEDICT, it follows the dictionary-gap rules.
-- **`term` and `override` tokens**: `"defSource": "contextual"` with `"basis": {"kind": "sentence_context", "note": "<domain> glossary: <english>, source <source>; in text: 「<quote>」"}`. The quote must include at least two characters from the sentence other than the word. A `term` that is in CC-CEDICT is glossed from the dictionary instead; an `override` always uses the glossary.
+Pass the glossary to `prepare.py` with `--glossary ~/Documents/zh-reader-glossaries/<domain>.tsv` (repeatable). The paths are stored in the work directory's manifest, and `validate.py` checks every chunk against them. A work directory prepared without the glossary cannot be resumed with it: use a new `--work-root` (or delete that work directory). Then, while writing each chunk:
+- **Segmentation** (still by hand): in each token or run of tokens, find the **longest** `term` or `override` that matches, make it one token, and split what remains into CC-CEDICT words (依蓋隊基地 → 依蓋 + 隊 + 基地). If a remainder is not in CC-CEDICT, it follows the dictionary-gap rules.
+- **`term` and `override` tokens**: `"defSource": "glossary"`, with a `def` of 12 words or fewer that keeps at least one word of the row's `english`, and no `basis`. Example: `{"t": "白詰報社", "py": "Báijié bàoshè", "def": "Lucky Clover Gazette (organization)", "defSource": "glossary"}`. The validator looks up the row and records its file and source; do not write them yourself. A `term` that is in CC-CEDICT is glossed from the dictionary instead (`dictionary`). An `override` uses `glossary` for its domain meaning, and may keep `dictionary` only where the text uses the dictionary sense.
+- The validator rejects a glossary term tagged `contextual` or `unknown`, so the reader can show where its gloss came from.
 - **`name` rows**: use `english` in the sentence translation; the tokens stay ordinary dictionary words.
-- A name in the text with no row (a bare name that appears only inside a `name` row) can be glossed `contextual` from that row, citing it.
+- A name in the text with no row (a bare name that appears only inside a `name` row) is glossed `contextual` with a `sentence_context` basis citing that row, for example `"note": "part of 新瑪麗塔驛站, New Serenne Stable in the <domain> glossary; here 「…」"`.
 
 ### 6. Report
 Add to the final report: the glossary path, how many rows were added, and any gaps that are still `unknown`, so the user can decide whether to add them.

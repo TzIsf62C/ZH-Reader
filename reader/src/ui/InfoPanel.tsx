@@ -1,10 +1,12 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
+import { describeDefinition, vocabProvenance } from '../core/definition.ts'
 import { wordStatus } from '../core/stats.ts'
 import type { Token, WordEntry } from '../core/types.ts'
 import { db } from '../db/db.ts'
 import { addVocab } from '../db/vocab.ts'
 import { hskLabel, useSettings } from './hooks.ts'
+import { SourceDetail } from './SourceDetail.tsx'
 
 export interface InfoPanelProps {
   token: Token | null
@@ -37,7 +39,7 @@ export function InfoPanel({
     const shown = alt && canToggle ? altForm : token.t
     const times = stat?.timesRead ?? 0
     const status = wordStatus(times, settings.learnedThreshold)
-    const canonicalDiffers = token.def && token.def !== entry.def
+    const view = describeDefinition(token, entry)
     wordBlock = (
       <div data-testid="word-info">
         <div className="word-line">
@@ -48,7 +50,11 @@ export function InfoPanel({
           <span className="badge hsk" data-testid="hsk-badge">
             {hskLabel(entry.hsk)}
           </span>
-          {token.src && <span className="badge">{token.src === 'claude' ? 'Claude' : 'Local'}</span>}
+          {view.label && (
+            <span className={`badge source ${view.source ?? ''}`} data-testid="def-source">
+              {view.label}
+            </span>
+          )}
           {canToggle && (
             <button
               aria-label={`Show ${alt ? 'original' : 'alternate'} script`}
@@ -61,8 +67,11 @@ export function InfoPanel({
             </button>
           )}
         </div>
-        <div className="def">{token.def ?? entry.def}</div>
-        {canonicalDiffers && <div className="muted">Dictionary: {entry.def}</div>}
+        <div className="def" data-testid="word-def">
+          {view.def ?? <span className="muted">No definition found</span>}
+        </div>
+        {view.dictionaryDef && <div className="muted">Dictionary: {view.dictionaryDef}</div>}
+        <SourceDetail key={key} detail={view.detail} />
         <div className="btn-row">
           <span data-testid="word-status">
             Read {times}× · {status === 'learned' ? 'Learned' : 'New'}
@@ -73,7 +82,13 @@ export function InfoPanel({
             disabled={!!saved}
             onClick={(e) => {
               e.stopPropagation()
-              void addVocab({ key, entry, py: token.py, def: token.def })
+              void addVocab({
+                key,
+                entry,
+                py: token.py,
+                def: view.def ?? undefined,
+                provenance: vocabProvenance(view, entry),
+              })
             }}
           >
             {saved ? 'In vocab ✓' : 'Add to vocab'}

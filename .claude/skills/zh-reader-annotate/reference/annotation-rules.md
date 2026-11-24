@@ -29,7 +29,7 @@
 ## Definition (`def`)
 - Pick the sense among `candidates` that fits this sentence, and write a short English gloss of 1–5 words, such as `bank`, `to go`, `completed action marker`.
 - You may shorten the chosen CC-CEDICT sense, but keep its wording: the gloss must share at least one word (or four-letter stem) with a candidate sense, or validation rejects it as a changed definition. Write `thus` for 因此 if that is the dictionary's word, not `therefore`.
-- If `candidates` is `null`, or you re-segmented into a word that is not in CC-CEDICT, the word needs a `defSource`: `unknown` with exactly `[definition unavailable]`, or `contextual` with a basis. Follow [dictionary-gaps.md](dictionary-gaps.md). For proper names, follow "Names" in [dictionary-gaps.md](dictionary-gaps.md): identify a person only when the text pins them down, otherwise gloss the kind of name or use `unknown`.
+- If `candidates` is `null`, or you re-segmented into a word that is not in CC-CEDICT, the word needs a `defSource`: `glossary` if a `--glossary` file has a row for it, otherwise `unknown` with exactly `[definition unavailable]`, or `contextual` with a basis. Follow [dictionary-gaps.md](dictionary-gaps.md). For proper names, follow "Names" in [dictionary-gaps.md](dictionary-gaps.md): identify a person only when the text pins them down, otherwise gloss the kind of name or use `unknown`.
 - When you merge tokens, the input has no `candidates` for the merged word. If you are not sure whether it is in CC-CEDICT, mark it `unknown`. If it is in the dictionary, validation rejects that and lists its senses, so gloss it from them on the retry. If it is not, the error shows its component evidence.
 
 ## When validation fails

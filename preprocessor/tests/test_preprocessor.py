@@ -848,7 +848,8 @@ class DictionaryGapTests(unittest.TestCase):
 
         report = json.loads(Path(assembled["report"]).read_text("utf-8"))
         self.assertEqual(report["definitionSources"],
-                         {"dictionary": len(words) - 5, "contextual": 4, "unknown": 1})
+                         {"dictionary": len(words) - 5, "contextual": 4, "glossary": 0,
+                          "unknown": 1})
         glosses = {item["word"]: item for item in report["contextualGlosses"]}
         self.assertEqual(set(glosses), {"滤水器", "雪莉", "斯威夫特"})
         self.assertEqual((glosses["滤水器"]["basis"], glosses["滤水器"]["sentenceIds"]),
@@ -882,3 +883,220 @@ class DictionaryGapTests(unittest.TestCase):
                     "words": {"滤水器": entry},
                 }
                 self.assertTrue(validate_text_file(data))
+
+
+from zh_preprocessor.glossary import Glossary, GlossaryError, load_rows  # noqa: E402
+
+GLOSSARY_TSV = (
+    "term\tkind\tpinyin\tenglish\tnote\tsource\n"
+    "# A test domain glossary.\n"
+    "嘰萌\tterm\tjīméng\tJimeng Charm\titem\thttps://example.org/wiki/Jimeng\n"
+    "水槽\toverride\tshuǐcáo\tSink Station\tplace; CC-CEDICT has 水槽 = sink\tderived\n"
+    "滤水器\tname\tlǜshuǐqì\tWater Filter\tname rows never gloss tokens\thttps://example.org/f\n"
+    "水槽\tterm\tshuǐcáo\tSink\tdemoted below\thttps://example.org/s\n"
+)
+
+
+class GlossaryTests(unittest.TestCase):
+    """Domain glossaries: the `glossary` defSource (PRD section 6, G1 and G4-G6)."""
+
+    def setUp(self):
+        self.fixture = Fixture()
+        self.lexicon = Lexicon(FIXTURES / "dictionary-gaps-cedict.txt", self.fixture.hsk)
+        self.path = self.fixture.root / "test-domain.tsv"
+        # The last row would duplicate 水槽; tests that need a valid file drop it.
+        self.path.write_text(GLOSSARY_TSV.rsplit("水槽\tterm", 1)[0], encoding="utf-8")
+        self.glossary = Glossary([self.path])
+
+    def tearDown(self):
+        self.fixture.close()
+
+    def write(self, text, name="other.tsv"):
+        path = self.fixture.root / name
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    # --- loading --------------------------------------------------------------------------
+
+    def test_loader_indexes_term_and_override_rows_by_simplified_key(self):
+        self.assertEqual(set(self.glossary.rows), {"叽萌", "水槽"})  # 嘰萌 indexed as 叽萌
+        row = self.glossary.get("叽萌")
+        self.assertEqual((row.kind, row.english, row.line), ("term", "Jimeng Charm", 3))
+        self.assertEqual(row.marker, {"file": "test-domain.tsv",
+                                      "source": "https://example.org/wiki/Jimeng"})
+        self.assertIsNone(self.glossary.get("滤水器"))  # name rows are translation-only
+
+    def test_loader_rejects_malformed_rows(self):
+        cases = {
+            "duplicate": GLOSSARY_TSV,
+            "no source": "雪莉\tterm\tx\tShirley\tnote\t\n",
+            "bad kind": "雪莉\tnickname\tx\tShirley\tnote\tderived\n",
+            "columns": "雪莉\tterm\tShirley\n",
+            "not chinese": "Shirley\tterm\tx\tShirley\tnote\tderived\n",
+            "punctuated term": "雪莉！\tterm\tx\tShirley\tnote\tderived\n",
+            "no english": "雪莉\tterm\tx\t\tnote\tderived\n",
+        }
+        for name, text in cases.items():
+            with self.subTest(name), self.assertRaises(GlossaryError):
+                load_rows(self.write(text))
+        with self.assertRaises(GlossaryError):
+            Glossary([self.fixture.root / "missing.tsv"])
+        # A name row is translation-only, so a full title may contain punctuation.
+        self.assertEqual(len(load_rows(self.write("重大發明！\tname\tx\tBig Invention!\tq\tderived\n"))), 1)
+
+    def test_term_in_two_glossaries_is_an_error(self):
+        other = self.write("叽萌\tterm\tx\tJimeng\tnote\tderived\n")
+        with self.assertRaises(GlossaryError):
+            Glossary([self.path, other])
+
+    # --- validation (G4) ------------------------------------------------------------------
+
+    def check(self, word, fields, glossary="default"):
+        tokens = [known("她"), known("发现"), {"t": word, "py": "x", **fields}]
+        chunk = {"sentences": [{"id": "p0s0", "text": "她发现" + word}]}
+        output = [{"id": "p0s0", "translation": "x", "tokens": tokens}]
+        accepted, errors = skill.check_chunk_output(
+            chunk, output, self.lexicon, None, self.glossary if glossary == "default" else glossary)
+        return (accepted[0]["tokens"][2] if accepted else None), errors
+
+    def test_glossary_term_gloss_is_accepted_and_records_its_source(self):
+        token, errors = self.check("叽萌", {"def": "Jimeng Charm (item)", "defSource": "glossary"})
+        self.assertEqual(errors, [])
+        self.assertEqual(token["defSource"], "glossary")
+        self.assertEqual(token["glossary"], self.glossary.get("叽萌").marker)
+
+    def test_glossary_gloss_must_share_wording_and_take_no_basis(self):
+        _, unrelated = self.check("叽萌", {"def": "lucky token", "defSource": "glossary"})
+        self.assertIn("shares no word with its glossary english", " ".join(unrelated))
+        _, placeholder = self.check("叽萌", {"def": skill.UNAVAILABLE, "defSource": "glossary"})
+        self.assertIn("shares no word", " ".join(placeholder))
+        _, with_basis = self.check("叽萌", {"def": "Jimeng", "defSource": "glossary",
+                                            "basis": SURNAME_BASIS})
+        self.assertIn('remove its "basis"', " ".join(with_basis))
+
+    def test_glossary_term_cannot_be_tagged_contextual_or_unknown(self):
+        cases = {
+            "contextual": {"def": "Jimeng Charm", "defSource": "contextual",
+                           "basis": {"kind": "sentence_context", "note": "glossary; 她发现"}},
+            "unknown": {"def": skill.UNAVAILABLE, "defSource": "unknown"},
+            "missing": {"def": "Jimeng Charm"},
+        }
+        for name, fields in cases.items():
+            with self.subTest(name):
+                _, errors = self.check("叽萌", fields)
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn('"defSource": "glossary"', errors[0])
+
+    def test_glossary_source_needs_a_glossary_row(self):
+        _, no_row = self.check("雪莉", {"def": "Shirley", "defSource": "glossary"})
+        self.assertIn("not a term or override row", " ".join(no_row))
+        _, no_glossary = self.check("叽萌", {"def": "Jimeng", "defSource": "glossary"}, None)
+        self.assertIn("not a term or override row", " ".join(no_glossary))
+
+    def test_term_in_cedict_stays_dictionary_but_override_wins(self):
+        term = self.write("水槽\tterm\tx\tSink Station\tnote\tderived\n", "term.tsv")
+        _, errors = self.check("水槽", {"def": "Sink Station", "defSource": "glossary"},
+                               Glossary([term]))
+        self.assertIn("CC-CEDICT wins", " ".join(errors))
+        token, errors = self.check("水槽", {"def": "Sink Station", "defSource": "glossary"})
+        self.assertEqual(errors, [])
+        self.assertEqual(token["defSource"], "glossary")
+        # An override may still be used in its CC-CEDICT sense, but not as contextual.
+        self.assertEqual(self.check("水槽", {"def": "sink"})[1], [])
+        _, contextual = self.check("水槽", {"def": "Sink Station", "defSource": "contextual",
+                                            "basis": {"kind": "sentence_context",
+                                                      "note": "她发现"}})
+        self.assertIn('"defSource": "glossary"', " ".join(contextual))
+
+    # --- prepare (G1), assemble and report (G5, G6) ---------------------------------------
+
+    def prepare(self, **kwargs):
+        options = {"output_dir": self.fixture.root / "out", "work_root": self.fixture.root / "work",
+                   "cedict": FIXTURES / "dictionary-gaps-cedict.txt", "hsk": self.fixture.hsk}
+        return skill.prepare(FIXTURES / "dictionary-gaps.txt", **(options | kwargs))
+
+    def test_prepare_stores_glossaries_and_refuses_to_resume_with_others(self):
+        work_dir = Path(self.prepare(glossaries=[self.path])["workDir"])
+        manifest = json.loads((work_dir / skill.MANIFEST).read_text("utf-8"))
+        self.assertEqual(manifest["glossaries"], [str(self.path.resolve())])
+        self.assertTrue(self.prepare(glossaries=[self.path])["resumed"])
+        with self.assertRaises(skill.SkillError):
+            self.prepare()
+        with self.assertRaises(skill.SkillError):
+            self.prepare(glossaries=[self.write(GLOSSARY_TSV, "bad.tsv")],
+                         work_root=self.fixture.root / "work2")
+
+    def test_assemble_writes_glossary_provenance_and_report(self):
+        work_dir = Path(self.prepare(glossaries=[self.path])["workDir"])
+        chunk = json.loads(skill._chunk_path(work_dir, 1, "input").read_text("utf-8"))
+        glossed = {"叽萌": {"def": "Jimeng Charm", "defSource": "glossary"},
+                   "水槽": {"def": "Sink Station", "defSource": "glossary"}}
+        output = []
+        for sentence in chunk["sentences"]:
+            tokens = []
+            for token in sentence["tokens"]:
+                t = token["t"]
+                if "py" not in token:
+                    tokens.append({"t": t})
+                elif t == "一杯":
+                    tokens += [known("一"), known("杯")]
+                elif t in glossed:
+                    tokens.append({"t": t, "py": "x", **glossed[t]})
+                elif t in GAP_ANNOTATIONS:
+                    tokens.append({"t": t, "py": "x", **DictionaryGapTests.annotated(t)})
+                else:
+                    tokens.append(known(t))
+            output.append({"id": sentence["id"], "translation": "T.", "tokens": tokens})
+        skill._chunk_path(work_dir, 1, "output").write_text(
+            json.dumps(output, ensure_ascii=False), encoding="utf-8")
+        validation = skill.validate(work_dir, 1)
+        self.assertEqual(validation["status"], "done", validation["errors"])
+
+        assembled = skill.assemble(work_dir)
+        self.assertEqual(assembled["definitionSources"]["glossary"], 2)
+        self.assertEqual({item["word"]: item["file"] for item in assembled["glossaryTerms"]},
+                         {"叽萌": "test-domain.tsv", "水槽": "test-domain.tsv"})
+        data = json.loads(Path(assembled["json"]).read_text("utf-8"))
+        self.assertEqual(validate_text_file(data), [])
+        if shutil.which("node"):
+            self.assertTrue(reader_validation(data)["ok"])
+        for key, source in (("叽萌", "https://example.org/wiki/Jimeng"), ("水槽", "derived")):
+            entry = data["words"][key]
+            self.assertEqual(entry["defSource"], "glossary")
+            self.assertEqual(entry["def"], skill.UNAVAILABLE)
+            self.assertEqual(entry["glossary"], {"file": "test-domain.tsv", "source": source})
+            self.assertNotIn("basis", entry)
+        tokens = [t for p in data["paragraphs"] for s in p["sentences"] for t in s["tokens"]]
+        self.assertTrue(all("glossary" not in t and "defSource" not in t for t in tokens))
+        self.assertEqual({t["def"] for t in tokens if t.get("k") == "叽萌"}, {"Jimeng Charm"})
+        report = json.loads(Path(assembled["report"]).read_text("utf-8"))
+        terms = {item["word"]: item for item in report["glossaryTerms"]}
+        self.assertEqual(terms["叽萌"]["sentenceIds"], ["p1s0"])
+        self.assertEqual(terms["叽萌"]["source"], "https://example.org/wiki/Jimeng")
+
+    def test_schema_addendum_checks_glossary_entries(self):
+        base = {"simp": "叽萌", "trad": "嘰萌", "py": "x", "countInText": 1, "hsk": None}
+        marker = {"file": "test-domain.tsv", "source": "derived"}
+        cases = {
+            "valid": ({**base, "def": skill.UNAVAILABLE, "defSource": "glossary",
+                       "glossary": marker}, False),
+            "no marker": ({**base, "def": skill.UNAVAILABLE, "defSource": "glossary"}, True),
+            "empty source": ({**base, "def": skill.UNAVAILABLE, "defSource": "glossary",
+                              "glossary": {"file": "a.tsv", "source": " "}}, True),
+            "def in entry": ({**base, "def": "Jimeng", "defSource": "glossary",
+                              "glossary": marker}, True),
+            "marker on contextual": ({**base, "def": skill.UNAVAILABLE, "defSource": "contextual",
+                                      "basis": SURNAME_BASIS, "glossary": marker}, True),
+            "marker without source": ({**base, "def": skill.UNAVAILABLE, "glossary": marker}, True),
+        }
+        for name, (entry, invalid) in cases.items():
+            with self.subTest(name):
+                data = {
+                    "schemaVersion": 1, "textId": "t", "title": "t", "script": "simp",
+                    "createdAt": "2026-01-01",
+                    "stats": {"wordCount": 1, "uniqueWords": 1, "hskCoverage": {}},
+                    "paragraphs": [{"sentences": [{"id": "p0s0", "translation": "", "tokens": [
+                        {"t": "叽萌", "k": "叽萌", "py": "x", "def": "Jimeng", "src": "claude"}]}]}],
+                    "words": {"叽萌": entry},
+                }
+                self.assertEqual(bool(validate_text_file(data)), invalid, validate_text_file(data))

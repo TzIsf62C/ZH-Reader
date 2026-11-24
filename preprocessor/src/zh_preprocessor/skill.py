@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .claude import AnnotationError, make_tokens
+from .glossary import Glossary, GlossaryError, GlossaryRow
 from .data import DATA_DIR
 from .lexicon import Lexicon
 from .pipeline import build_text_file, output_paths
@@ -79,6 +80,14 @@ def _save_manifest(work_dir: Path, manifest: dict) -> None:
 
 def _lexicon(manifest_or_options: dict) -> Lexicon:
     return Lexicon(Path(manifest_or_options["cedict"]), Path(manifest_or_options["hsk"]))
+
+
+def _glossary(manifest: dict) -> Glossary:
+    """The glossaries given to prepare, reloaded so validation sees the files' current rows."""
+    try:
+        return Glossary([Path(path) for path in manifest.get("glossaries", [])])
+    except GlossaryError as error:
+        raise SkillError(f"{error} (glossaries are fixed at prepare time)") from None
 
 
 def _inside_repository(path: Path) -> bool:
@@ -197,6 +206,7 @@ def prepare(
     cedict: Path | None = None,
     hsk: Path | None = None,
     data_dir: Path = DATA_DIR,
+    glossaries: list[Path] | tuple[Path, ...] = (),
 ) -> dict:
     if chunk_size < 1:
         raise SkillError("--chunk-size must be at least 1.")
@@ -217,9 +227,20 @@ def prepare(
         raise SkillError("The input contains no text after whitespace normalization.")
     text_id = hashlib.sha1(normalized.encode("utf-8")).hexdigest()
     work_dir = work_root / text_id
+    try:
+        glossary = Glossary(list(glossaries))
+    except GlossaryError as error:
+        raise SkillError(str(error)) from None
+    glossary_paths = [str(path) for path in glossary.paths]
 
     if (work_dir / MANIFEST).is_file():
         manifest = _load_manifest(work_dir)
+        if manifest.get("glossaries", []) != glossary_paths:
+            raise SkillError(
+                f"{work_dir} was prepared with glossaries {manifest.get('glossaries', [])}, "
+                f"not {glossary_paths}. Use a new --work-root (or delete that work directory) "
+                "to prepare with different glossaries."
+            )
         result = _progress(work_dir, manifest)
         result["resumed"] = True
         return result
@@ -300,6 +321,7 @@ def prepare(
         "retries": retries,
         "cedict": str(lexicon.cedict_path),
         "hsk": str(lexicon.hsk_path),
+        "glossaries": glossary_paths,
         "sentenceCount": len(sentences),
         "chunks": chunks,
     }
@@ -335,7 +357,11 @@ def next_chunk(work_dir: Path) -> dict:
 
 
 def check_chunk_output(
-    chunk_input: dict, output: Any, lexicon: Lexicon, source_text: str | None = None
+    chunk_input: dict,
+    output: Any,
+    lexicon: Lexicon,
+    source_text: str | None = None,
+    glossary: Glossary | None = None,
 ) -> tuple[list[dict], list[str]]:
     """Return (accepted sentences, errors). Sentences are only usable when errors is empty.
 
@@ -384,7 +410,7 @@ def check_chunk_output(
         for written, token in zip(item["tokens"], tokens):
             if token.get("p") is True:
                 continue
-            for error in _definition_errors(written, token, lexicon, context_text):
+            for error in _definition_errors(written, token, lexicon, context_text, glossary):
                 errors.append(f'{sentence["id"]}: "{token["t"]}" {error}')
         accepted.append({"id": sentence["id"], "translation": translation, "tokens": tokens})
 
@@ -411,9 +437,12 @@ def gloss_matches_dictionary(gloss: str, key: str, lexicon: Lexicon) -> bool:
     four-letter stem, so "warning" matches "to warn") with the dictionary. This catches a
     definition replaced by an unrelated one; it cannot judge subtle paraphrase.
     """
-    dictionary = {
-        word for entry in lexicon.senses.get(key, []) for word in _gloss_words(entry.definition)
-    }
+    return gloss_shares_wording(gloss, [entry.definition for entry in lexicon.senses.get(key, [])])
+
+
+def gloss_shares_wording(gloss: str, references: list[str]) -> bool:
+    """True when a gloss shares a content word or four-letter stem with any reference text."""
+    dictionary = {word for reference in references for word in _gloss_words(reference)}
     written = _gloss_words(gloss)
     content = [word for word in written if word not in _GLOSS_STOPWORDS] or written
     for word in content:
@@ -435,14 +464,66 @@ def _evidence_hint(word: str, lexicon: Lexicon) -> str:
     return "Component evidence: " + json.dumps(summary, ensure_ascii=False)
 
 
+def _glossary_errors(written: dict, token: dict, row: GlossaryRow | None) -> list[str]:
+    """Check a token written with defSource "glossary" and record its provenance."""
+    if row is None:
+        return [
+            'has defSource "glossary", but it is not a term or override row in the '
+            "glossaries given to prepare. Use the defSource its evidence supports."
+        ]
+    errors = []
+    definition = token["def"]
+    if written.get("basis") is not None:
+        errors.append('is a glossary gloss; remove its "basis" (the glossary row is the source).')
+    if definition == UNAVAILABLE or not gloss_shares_wording(definition, [row.english]):
+        errors.append(
+            f"has the def {json.dumps(definition)}, which shares no word with its glossary "
+            f"english {json.dumps(row.english)} ({row.file} line {row.line}). Keep at least "
+            "one of its words."
+        )
+    elif len(definition.split()) > MAX_CONTEXTUAL_WORDS:
+        errors.append(
+            f"has a glossary gloss of {len(definition.split())} words; the limit is "
+            f"{MAX_CONTEXTUAL_WORDS}."
+        )
+    if not errors:
+        token["defSource"] = "glossary"
+        token["glossary"] = row.marker
+    return errors
+
+
 def _definition_errors(
-    written: dict, token: dict, lexicon: Lexicon, context_text: str
+    written: dict,
+    token: dict,
+    lexicon: Lexicon,
+    context_text: str,
+    glossary: Glossary | None = None,
 ) -> list[str]:
     """Check one word token's defSource/basis and record them on the token."""
     key = token["k"]
     source = written.get("defSource")
     basis = written.get("basis")
     definition = token["def"]
+    row = glossary.get(key) if glossary else None
+
+    if source == "glossary":
+        if row is not None and row.kind == "term" and key in lexicon:
+            return [
+                f"is in CC-CEDICT, and its glossary row ({row.file} line {row.line}) is a "
+                '"term", not an "override", so CC-CEDICT wins: use "defSource": "dictionary". '
+                f"Candidates: {_candidate_hint(lexicon, key)}"
+            ]
+        return _glossary_errors(written, token, row)
+    if row is not None and (row.kind == "override" or key not in lexicon):
+        # A glossary term is tagged "glossary", so the reader can show where it came from.
+        if row.kind == "override" and source in (None, "dictionary"):
+            pass  # an override may still be used in its CC-CEDICT sense
+        else:
+            return [
+                f"is in the glossary ({row.file} line {row.line}: {json.dumps(row.english)}). "
+                'Write "defSource": "glossary" with a def that keeps a word of that english, '
+                'and no basis.'
+            ]
 
     if key in lexicon:
         token["defSource"] = "dictionary"
@@ -637,6 +718,7 @@ def validate(work_dir: Path, number: int) -> dict:
             output,
             _lexicon(manifest),
             (work_dir / "source.txt").read_text(encoding="utf-8"),
+            _glossary(manifest),
         )
 
     if not errors:
@@ -687,6 +769,7 @@ def assemble(work_dir: Path, *, overwrite: bool = False) -> dict:
     position = 0
     # key -> occurrences of Claude-written contextual glosses, for the words map and report
     contextual: dict[str, list[dict]] = {}
+    glossed: dict[str, list[dict]] = {}
     occurrences: dict[str, list[str]] = {}
 
     def annotate(sentence: str) -> tuple[str, list[dict], dict]:
@@ -700,9 +783,16 @@ def assemble(work_dir: Path, *, overwrite: bool = False) -> dict:
         tokens = []
         for stored in item["tokens"]:
             # Provenance moves to the word entry; tokens keep the plain schema-v1 shape.
-            token = {k: v for k, v in stored.items() if k not in ("defSource", "basis")}
+            token = {
+                k: v for k, v in stored.items() if k not in ("defSource", "basis", "glossary")
+            }
             if not token.get("p"):
                 occurrences.setdefault(token["k"], []).append(item["id"])
+                if stored.get("defSource") == "glossary" and stored.get("glossary"):
+                    glossed.setdefault(token["k"], []).append(
+                        {"t": token["t"], "def": token["def"], "glossary": stored["glossary"],
+                         "sentenceId": item["id"]}
+                    )
                 if stored.get("defSource") == "contextual" and stored.get("basis"):
                     contextual.setdefault(token["k"], []).append(
                         {"t": token["t"], "def": token["def"], "basis": stored["basis"],
@@ -725,7 +815,7 @@ def assemble(work_dir: Path, *, overwrite: bool = False) -> dict:
     if data["textId"] != manifest["textId"]:
         raise SkillError("Work directory source does not match its manifest.")
 
-    review = _apply_provenance(data["words"], lexicon, contextual, occurrences)
+    review = _apply_provenance(data["words"], lexicon, contextual, occurrences, glossed)
     report.update(review)
 
     report.update(
@@ -764,6 +854,10 @@ def assemble(work_dir: Path, *, overwrite: bool = False) -> dict:
             {"word": item["word"], "def": item["def"], "basis": item["basis"]["kind"]}
             for item in report["contextualGlosses"]
         ],
+        "glossaryTerms": [
+            {"word": item["word"], "def": item["def"], "file": item["file"]}
+            for item in report["glossaryTerms"]
+        ],
         "unknownDefinitions": [item["word"] for item in report["unknownDefinitions"]],
     }
 
@@ -773,19 +867,40 @@ def _apply_provenance(
     lexicon: Lexicon,
     contextual: dict[str, list[dict]],
     occurrences: dict[str, list[str]],
+    glossed: dict[str, list[dict]] | None = None,
 ) -> dict:
-    """Add defSource/basis to each word entry and build the report's review lists.
+    """Add defSource/basis/glossary to each word entry and build the report's review lists.
 
-    A word missing from CC-CEDICT is "contextual" when any occurrence carries a validated
-    contextual gloss, and "unknown" otherwise (including fallback chunks). The entry's def
-    stays the dictionary field, so a contextual gloss is never shown as a dictionary fact.
+    A word with a validated glossary gloss is "glossary" (this includes an override of a
+    CC-CEDICT word). Otherwise a word in CC-CEDICT is "dictionary"; a missing word is
+    "contextual" when any occurrence carries a validated contextual gloss, and "unknown"
+    otherwise (including fallback chunks). The entry's def stays the dictionary field
+    (the placeholder for glossary, contextual and unknown words), so a gloss written for
+    this text is never shown as a dictionary fact.
     """
+    glossed = glossed or {}
     counts: Counter[str] = Counter()
     glosses: list[dict] = []
+    terms: list[dict] = []
     unknown: list[dict] = []
     for key in sorted(words):
         entry = words[key]
-        if key in lexicon:
+        if key in glossed:
+            entry["defSource"] = "glossary"
+            entry["def"] = UNAVAILABLE
+            entry["glossary"] = dict(glossed[key][0]["glossary"])
+            grouped_terms: dict[tuple, dict] = {}
+            for record in glossed[key]:
+                marker = record["glossary"]
+                group = grouped_terms.setdefault(
+                    (record["def"], marker["file"], marker["source"]),
+                    {"word": key, "t": record["t"], "def": record["def"], **marker,
+                     "sentenceIds": []},
+                )
+                if record["sentenceId"] not in group["sentenceIds"]:
+                    group["sentenceIds"].append(record["sentenceId"])
+            terms.extend(grouped_terms.values())
+        elif key in lexicon:
             entry["defSource"] = "dictionary"
         elif key in contextual:
             entry["defSource"] = "contextual"
@@ -813,6 +928,7 @@ def _apply_provenance(
         "definitionSources": {source: counts[source] for source in DEF_SOURCES},
         "identifiedReferents": referents,
         "contextualGlosses": [item for item in glosses if item not in referents],
+        "glossaryTerms": terms,
         "unknownDefinitions": unknown,
     }
 
@@ -839,6 +955,10 @@ def _parser() -> argparse.ArgumentParser:
     prep.add_argument("--data-dir", type=Path, default=DATA_DIR)
     prep.add_argument("--cedict", type=Path)
     prep.add_argument("--hsk", type=Path)
+    prep.add_argument(
+        "--glossary", type=Path, action="append", default=[], dest="glossaries",
+        help="Domain glossary TSV (repeatable). Its term/override rows gloss tokens.",
+    )
 
     nxt = commands.add_parser("next", help="Show the next pending chunk.")
     nxt.add_argument("work_dir", type=Path)
@@ -868,6 +988,7 @@ def main(argv: list[str] | None = None) -> int:
                 cedict=options.cedict,
                 hsk=options.hsk,
                 data_dir=options.data_dir,
+                glossaries=options.glossaries,
             )
             exit_code = 0
         elif options.command == "next":

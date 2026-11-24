@@ -1,4 +1,4 @@
-import { SUPPORTED_SCHEMA_VERSION, type TextFile } from './types.ts'
+import { DEF_SOURCES, SUPPORTED_SCHEMA_VERSION, type DefSource, type TextFile } from './types.ts'
 
 export type ValidationResult = { ok: true; data: TextFile } | { ok: false; error: string }
 
@@ -59,11 +59,31 @@ export function validateTextFile(raw: unknown): ValidationResult {
     }
   }
 
+  for (const w of Object.values(words)) sanitizeProvenance(w as Record<string, unknown>)
+
   const data = raw as unknown as TextFile
   for (const para of data.paragraphs) {
     for (const s of para.sentences) s.translation ??= ''
   }
   return { ok: true, data }
+}
+
+const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''
+
+/**
+ * Definition provenance is optional display metadata, so it never fails an import. Fields that
+ * are malformed, unknown or on the wrong source are dropped; an unrecognized defSource drops
+ * all of them, and the word displays as in files without provenance.
+ */
+function sanitizeProvenance(w: Record<string, unknown>): void {
+  const source = DEF_SOURCES.includes(w.defSource as DefSource) ? (w.defSource as DefSource) : undefined
+  if (source === undefined) delete w.defSource
+  const basis = w.basis
+  if (source !== 'contextual' || !isObj(basis) || !nonEmpty(basis.kind) || !nonEmpty(basis.note)) delete w.basis
+  const glossary = w.glossary
+  if (source !== 'glossary' || !isObj(glossary) || !nonEmpty(glossary.file) || !nonEmpty(glossary.source)) {
+    delete w.glossary
+  }
 }
 
 export function reconstructSentence(tokens: { t: string }[]): string {

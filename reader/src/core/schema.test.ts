@@ -26,6 +26,32 @@ describe('schema validation', () => {
     expect(validateTextFile(data).ok).toBe(false)
   })
 
+  it('keeps valid definition provenance and drops malformed provenance without failing', () => {
+    const raw = JSON.parse(
+      readFileSync(new URL('../../e2e/fixtures/def-sources.json', import.meta.url), 'utf8'),
+    )
+    const ok = validateTextFile(structuredClone(raw))
+    expect(ok.ok).toBe(true)
+    if (ok.ok) {
+      expect(ok.data.words['白诘报社'].glossary?.file).toBe('totk.tsv')
+      expect(ok.data.words['滤水器'].basis?.kind).toBe('transparent_compound')
+    }
+    raw.words['我'].defSource = 'guess'
+    raw.words['我'].basis = { kind: 'components', note: 'x' }
+    raw.words['滤水器'].basis = { kind: 'components', note: '' }
+    raw.words['白诘报社'].glossary = { file: 'totk.tsv' }
+    raw.words['叽萌'].glossary = { file: 'totk.tsv', source: 'derived' }
+    const res = validateTextFile(raw)
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.data.words['我']).not.toHaveProperty('defSource')
+    expect(res.data.words['我']).not.toHaveProperty('basis')
+    expect(res.data.words['滤水器']).toMatchObject({ defSource: 'contextual' })
+    expect(res.data.words['滤水器']).not.toHaveProperty('basis')
+    expect(res.data.words['白诘报社']).not.toHaveProperty('glossary')
+    expect(res.data.words['叽萌']).not.toHaveProperty('glossary')
+  })
+
   it('rejects non-objects and missing paragraphs', () => {
     expect(validateTextFile(null).ok).toBe(false)
     expect(validateTextFile({ ...load('sample-simplified.json'), paragraphs: [] }).ok).toBe(false)

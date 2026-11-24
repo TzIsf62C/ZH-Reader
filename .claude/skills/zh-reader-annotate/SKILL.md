@@ -34,7 +34,8 @@ Outputs must be outside the ZH Reader repository. If the text is long (more than
 
 ### 2. Prepare
 ```bash
-python3 SKILL_DIR/scripts/prepare.py "<input.txt>" --title "<title>" --script auto --out "<output dir>"
+python3 SKILL_DIR/scripts/prepare.py "<input.txt>" --title "<title>" --script auto --out "<output dir>" \
+  [--glossary ~/Documents/zh-reader-glossaries/<domain>.tsv]
 ```
 It prints `workDir`, `chunkCount`, `chunksPending` and `outputsExist`.
 - If `resumed` is true, an earlier run already exists. Continue it, because completed chunks are kept.
@@ -67,6 +68,7 @@ Each word token has a `defSource`. Details, basis kinds and the evidence format 
 
 - **`dictionary`**: the word is in CC-CEDICT. Gloss it from one of its `candidates`, reusing the dictionary's wording. Never overwrite or replace a dictionary definition. `defSource` may be omitted.
 - **`contextual`**: allowed only for a word missing from CC-CEDICT, with a gloss of 12 words or fewer and a `basis` (`components`, `transparent_compound`, `sentence_context` or `identified_referent`, plus a note naming the evidence). Build it only from the chunk's `gaps` evidence or the text itself, never from your own recognition of a word. First check whether the word should be split into its CC-CEDICT parts instead (see "Segmentation" in the annotation rules); only names and fixed proper terms stay as one token.
+- **`glossary`**: only with a `--glossary` file, for a token that matches one of its `term` or `override` rows. The `def` keeps a word of the row's `english`; no `basis`. A glossary term may not be tagged `contextual` or `unknown`. See step 5 of [reference/glossaries.md](reference/glossaries.md).
 - **`unknown`**: `def` is exactly `[definition unavailable]`. Required for idioms, dialect, slang, classical phrases and rare terms unless a basis clearly supports a gloss.
 - **Names**: never translate a name's characters or supply an English form the text doesn't give. Identify a person (`identified_referent`, "Jeff Bezos, founder of Amazon") only when the text pins them down with a role, title, work or earlier introduction, quoted in the note. Otherwise gloss only the kind of name ("female given name", "surname") with its evidence, or use `unknown`. In the sentence translation, an unidentified transliterated name is pinyin with the best guess in parentheses: "Xuělì (Shirley)". See "Names" in the reference.
 
@@ -89,8 +91,8 @@ Finish with a short report that contains:
 - the three output paths (`json`, `source`, `report`)
 - the sentence count and the chunk count
 - the chunks that fell back to local annotation (`chunksFallbackToLocal`), or "none"
-- the counts by definition source (`definitionSources`: dictionary, contextual, unknown)
+- the counts by definition source (`definitionSources`: dictionary, contextual, glossary, unknown)
 - every identified referent (`identifiedReferents`) first, since these name real people, then every other contextual gloss with its basis (`contextualGlosses`) and every unknown word (`unknownDefinitions`), for the user to review; the full evidence notes are in the report file
 - the words missing from HSK (`unmatchedHskWords`); list them, truncating to about 30 with a total count if longer
-- with a domain glossary: its path, the rows added in this run, and gaps still `unknown` that could be added
+- with a domain glossary: its path, the matched terms (`glossaryTerms`), the rows added in this run, and gaps still `unknown` that could be added
 - a reminder to import the `.json` file in the reader's Library

@@ -6,6 +6,7 @@ Every word token has a definition source, `defSource`:
 |---|---|---|---|
 | `dictionary` | The word is in CC-CEDICT (`candidates` is not `null`). Default, may be omitted. | A gloss taken from one of its senses | not allowed |
 | `contextual` | Not in CC-CEDICT, and you can name the evidence for a meaning | 12 words or fewer | required |
+| `glossary` | A `term` or `override` row in a glossary given to `prepare.py --glossary` (see [glossaries.md](glossaries.md)) | Keeps a word of the row's `english` | not allowed |
 | `unknown` | Not in CC-CEDICT, and the evidence does not clearly support a meaning | exactly `[definition unavailable]` | not allowed |
 
 "Unknown" is a correct answer. A confident guess is the worst outcome: when you are unsure between `contextual` and `unknown`, choose `unknown`.

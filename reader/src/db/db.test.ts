@@ -172,6 +172,26 @@ describe('vocab', () => {
     expect((await db.wordStats.get('银行'))!.timesRead).toBe(reads)
   })
 
+  it('records where the saved definition came from', async () => {
+    const res = validateTextFile(JSON.parse(readFileSync(new URL('../../e2e/fixtures/def-sources.json', import.meta.url), 'utf8')))
+    if (!res.ok) throw new Error(res.error)
+    const words = res.data.words
+    await addVocab({
+      key: '白诘报社',
+      entry: words['白诘报社'],
+      def: 'Lucky Clover Gazette (organization)',
+      provenance: { defSource: 'glossary', glossary: words['白诘报社'].glossary },
+    }, db)
+    expect(await db.vocab.get('白诘报社')).toMatchObject({
+      def: 'Lucky Clover Gazette (organization)',
+      defSource: 'glossary',
+      glossary: { file: 'totk.tsv', source: 'https://zelda.kiranico.com/zh-Hant/totk/map' },
+    })
+    // Entries saved without provenance (older entries, API-mode texts) still work.
+    await addVocab({ key: '我', entry: words['我'] }, db)
+    expect(await db.vocab.get('我')).not.toHaveProperty('defSource')
+  })
+
   it('filters by HSK level, not-in-HSK and status, and sorts', async () => {
     const data = sample('sample-simplified.json')
     for (const k of ['银行', '护照', '失望']) await addVocab({ key: k, entry: data.words[k] }, db)

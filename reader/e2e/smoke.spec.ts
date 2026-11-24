@@ -131,6 +131,70 @@ test('hold shows word info in the top panel; tap panel toggles translation; fini
   await expect(page.getByTestId('vocab-item')).toContainText('银行')
 })
 
+test('word panel labels each definition source and shows its evidence on demand', async ({ page }) => {
+  await page.goto('/')
+  await page
+    .getByTestId('import-input')
+    .setInputFiles(path.resolve(import.meta.dirname, 'fixtures/def-sources.json'))
+  await openText(page, /Definition sources/)
+
+  const hold = async (word: string) => {
+    const box = (await page.locator('.columns .w', { hasText: new RegExp(`^${word}$`) }).first().boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.waitForTimeout(700)
+    await page.mouse.up()
+    await expect(page.getByTestId('word-info')).toContainText(word)
+  }
+  const source = page.getByTestId('def-source')
+  const def = page.getByTestId('word-def')
+  const info = page.getByTestId('word-info')
+
+  await hold('我')
+  await expect(source).toHaveText('Dictionary')
+  await expect(def).toHaveText('I')
+  await expect(info).toContainText('Dictionary: I; me')
+  await expect(page.getByTestId('source-toggle')).toHaveCount(0)
+
+  await hold('白詰報社')
+  await expect(source).toHaveText('Glossary')
+  await expect(def).toHaveText('Lucky Clover Gazette (organization)')
+  await expect(info).not.toContainText('definition unavailable')
+  await expect(page.getByTestId('source-detail')).toHaveCount(0)
+  const translationShown = await page.getByTestId('translation').count()
+  await page.getByTestId('source-toggle').click()
+  await expect(page.getByTestId('source-detail')).toContainText('Glossary: totk.tsv')
+  await expect(page.getByTestId('source-detail').getByRole('link')).toHaveAttribute(
+    'href',
+    'https://zelda.kiranico.com/zh-Hant/totk/map',
+  )
+  // opening the detail does not toggle the sentence translation
+  await expect(page.getByTestId('translation')).toHaveCount(translationShown)
+  await page.getByRole('button', { name: 'Add to vocab' }).click()
+
+  await hold('滤水器')
+  await expect(source).toHaveText('Contextual')
+  await expect(def).toHaveText('water filter')
+  await expect(info).not.toContainText('Dictionary:')
+  // the detail starts collapsed for each word
+  await expect(page.getByTestId('source-detail')).toHaveCount(0)
+  await page.getByTestId('source-toggle').click()
+  await expect(page.getByTestId('source-detail')).toContainText(
+    'From its parts (transparent compound): 滤 to filter + 水 water + 器 device',
+  )
+
+  await hold('叽萌')
+  await expect(source).toHaveText('Unknown')
+  await expect(def).toHaveText('No definition found')
+
+  await page.locator('.reader-footer').getByRole('button', { name: 'Back to library' }).click()
+  await page.getByRole('link', { name: 'Vocab' }).click()
+  await expect(page.getByTestId('vocab-item')).toContainText('Lucky Clover Gazette (organization)')
+  await expect(page.getByTestId('vocab-source')).toHaveText('Glossary')
+  await page.getByTestId('vocab-item').getByTestId('source-toggle').click()
+  await expect(page.getByTestId('vocab-item').getByTestId('source-detail')).toContainText('totk.tsv')
+})
+
 test('reading position is saved and restored per text', async ({ page }) => {
   await importFiles(page, 'sample-long.json')
   await openText(page, /长文本/)

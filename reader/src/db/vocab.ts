@@ -1,4 +1,4 @@
-import type { VocabEntry, WordEntry, HskLevel } from '../core/types.ts'
+import type { DefProvenance, VocabEntry, WordEntry, HskLevel } from '../core/types.ts'
 import { db, type ReaderDB } from './db.ts'
 
 export interface VocabSource {
@@ -7,6 +7,8 @@ export interface VocabSource {
   /** Contextual pinyin/gloss from the tapped token, preferred when present. */
   py?: string
   def?: string
+  /** Where the saved definition came from, as shown in the word panel. */
+  provenance?: DefProvenance
 }
 
 export async function addVocab(src: VocabSource, database: ReaderDB = db): Promise<void> {
@@ -18,6 +20,7 @@ export async function addVocab(src: VocabSource, database: ReaderDB = db): Promi
     trad: src.entry.trad,
     py: src.py ?? src.entry.py,
     def: src.def ?? src.entry.def,
+    ...src.provenance,
     hsk: src.entry.hsk as HskLevel,
     savedAt: Date.now(),
     note: '',

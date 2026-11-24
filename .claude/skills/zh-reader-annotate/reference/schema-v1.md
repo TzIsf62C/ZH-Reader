@@ -43,7 +43,7 @@ A JSON array with one object per input sentence, in the same order and with the 
 
 A simplified sentence uses the same shape, for example `{"t": "银行", "py": "yínháng", "def": "bank"}`.
 
-A word token may also carry `defSource` (`dictionary`, `contextual` or `unknown`) and, for `contextual` only, `basis: {"kind", "note"}`. Words missing from CC-CEDICT must carry `defSource`:
+A word token may also carry `defSource` (`dictionary`, `contextual`, `glossary` or `unknown`) and, for `contextual` only, `basis: {"kind", "note"}`. Words missing from CC-CEDICT must carry `defSource`. `glossary` is only for terms in a glossary given to `prepare.py --glossary`:
 
 ```json
 {"t": "滤水器", "py": "lǜshuǐqì", "def": "water filter", "defSource": "contextual",
@@ -52,7 +52,7 @@ A word token may also carry `defSource` (`dictionary`, `contextual` or `unknown`
 
 ## Assembled output (schema-v1 addendum)
 
-The scripts move these fields from the tokens to the `words` map, so tokens keep the plain v1 shape. In skill output every word entry has an optional `defSource`, and contextual entries also have `basis`. A contextual entry's `def` stays `[definition unavailable]`, because the reader labels the entry's `def` as the dictionary definition; the gloss is on the tokens. Readers that don't know these fields ignore them. API-mode output does not include them.
+The scripts move these fields from the tokens to the `words` map, so tokens keep the plain v1 shape. In skill output every word entry has an optional `defSource`. Contextual entries also have `basis`, and glossary entries have `glossary: {"file", "source"}` (the glossary's file name and the row's source URL or `derived`). The entry's `def` is the dictionary field: for `contextual`, `glossary` and `unknown` entries it stays `[definition unavailable]`, and the gloss is on the tokens. The reader shows `defSource` as the definition's source label, with the basis note or glossary source on demand. A reader that doesn't know these fields ignores them. API-mode output does not include them.
 
 ## Validation (`validate.py`)
 
@@ -61,9 +61,10 @@ The scripts move these fields from the tokens to the `words` map, so tokens keep
 3. Joining every `t` gives `text` exactly, character for character. A changed, dropped, added or script-converted character fails this check. (`銀行` written as `银行` in a traditional text fails.)
 4. A token is either all Chinese characters, with non-empty `py` and `def`, or contains no Chinese characters at all and has only `t`. A token that mixes the two, such as `"我。"`, fails.
 5. A word in CC-CEDICT is `dictionary` (or has no `defSource`), has no `basis`, and has a `def` that shares a word or four-letter stem with one of its senses. The placeholder is rejected for it.
-6. A word not in CC-CEDICT has a `defSource` of `unknown` or `contextual`:
+6. With a `--glossary` file, a word that is not in CC-CEDICT and matches a `term` row, or any word that matches an `override` row, is `glossary`. (An `override` may instead stay `dictionary` where the text uses the dictionary sense.) Its `def` shares a word or four-letter stem with the row's `english`, is 12 words or fewer, and has no `basis`. `glossary` is rejected for a word with no such row, and for a `term` that is in CC-CEDICT; such a `term` follows rule 5.
+7. Any other word not in CC-CEDICT has a `defSource` of `unknown` or `contextual`:
    - `unknown`: `def` is exactly `[definition unavailable]`, with no `basis`.
    - `contextual`: `def` is 12 words or fewer and not the placeholder. `basis.kind` is `components`, `transparent_compound`, `sentence_context` or `identified_referent`, and `basis.note` is non-empty, 200 characters or fewer.
    - A component-based note names at least one of the word's characters, and the word must have dictionary components.
    - A `sentence_context` or `identified_referent` note quotes two or more characters from anywhere in the text, other than the word itself.
-7. The assembled chunk passes the schema-v1 validator.
+8. The assembled chunk passes the schema-v1 validator.

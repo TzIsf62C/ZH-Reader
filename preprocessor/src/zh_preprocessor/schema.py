@@ -5,34 +5,45 @@ from typing import Any
 SCHEMA_VERSION = 1
 WORD_TOKEN_SOURCE = {"claude", "local"}
 UNAVAILABLE = "[definition unavailable]"
-# Optional word-entry provenance (schema-v1 addendum; written by the skill, ignored by the reader).
-DEF_SOURCES = ("dictionary", "contextual", "unknown")
+# Optional word-entry provenance (schema-v1 addendum, written by the skill). The reader shows
+# it as the definition's source and falls back to its plain display when it is absent.
+DEF_SOURCES = ("dictionary", "contextual", "glossary", "unknown")
 BASIS_KINDS = ("components", "transparent_compound", "sentence_context", "identified_referent")
 
 
 def _provenance_errors(key: str, entry: dict) -> list[str]:
     if "defSource" not in entry:
-        return [f'Word entry "{key}" has a basis without defSource.'] if "basis" in entry else []
+        extra = [field for field in ("basis", "glossary") if field in entry]
+        return [f'Word entry "{key}" has a {extra[0]} without defSource.'] if extra else []
     source = entry["defSource"]
     if source not in DEF_SOURCES:
         return [f'Word entry "{key}" has an invalid defSource.']
-    if source != "contextual":
-        errors = [f'Word entry "{key}" has a basis but is not contextual.'] if "basis" in entry else []
-        if source == "unknown" and entry["def"] != UNAVAILABLE:
-            errors.append(f'Unknown word entry "{key}" must keep the def "{UNAVAILABLE}".')
-        return errors
-    basis = entry.get("basis")
-    if (
-        not isinstance(basis, dict)
-        or basis.get("kind") not in BASIS_KINDS
-        or not isinstance(basis.get("note"), str)
-        or not basis["note"].strip()
-    ):
-        return [f'Contextual word entry "{key}" has a missing or invalid basis.']
-    if entry["def"] != UNAVAILABLE:
-        # The entry def is the dictionary field; a contextual gloss lives on the tokens only.
-        return [f'Contextual word entry "{key}" must keep the def "{UNAVAILABLE}".']
-    return []
+    errors = []
+    if source != "contextual" and "basis" in entry:
+        errors.append(f'Word entry "{key}" has a basis but is not contextual.')
+    if source != "glossary" and "glossary" in entry:
+        errors.append(f'Word entry "{key}" has a glossary marker but is not glossary.')
+    if source in ("unknown", "contextual", "glossary") and entry["def"] != UNAVAILABLE:
+        # The entry def is the dictionary field; contextual and glossary glosses live on
+        # the tokens only.
+        errors.append(f'{source.capitalize()} word entry "{key}" must keep the def "{UNAVAILABLE}".')
+    if source == "contextual":
+        basis = entry.get("basis")
+        if (
+            not isinstance(basis, dict)
+            or basis.get("kind") not in BASIS_KINDS
+            or not isinstance(basis.get("note"), str)
+            or not basis["note"].strip()
+        ):
+            errors.append(f'Contextual word entry "{key}" has a missing or invalid basis.')
+    if source == "glossary":
+        marker = entry.get("glossary")
+        if not isinstance(marker, dict) or not all(
+            isinstance(marker.get(field), str) and marker[field].strip()
+            for field in ("file", "source")
+        ):
+            errors.append(f'Glossary word entry "{key}" has a missing or invalid glossary marker.')
+    return errors
 
 
 def validate_text_file(data: Any) -> list[str]:

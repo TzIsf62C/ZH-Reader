@@ -183,6 +183,45 @@ input[type='number'] {
   font-weight: 700;
 }
 
+/* Definition source: plain for dictionary, dashed for Claude's contextual glosses,
+   accent outline for the user's glossary, muted for unknown words. */
+.badge.source.contextual {
+  border-style: dashed;
+}
+
+.badge.source.glossary {
+  border-color: var(--accent);
+}
+
+.badge.source.unknown {
+  color: var(--muted);
+}
+
+.source-detail .link-button {
+  min-height: 32px;
+  min-width: 0;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.source-detail .source-body {
+  font-size: 14px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.source-detail .source-kind {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.source-detail a {
+  color: var(--accent);
+}
+
 .banner {
   padding: 10px 12px;
   margin-bottom: 12px;

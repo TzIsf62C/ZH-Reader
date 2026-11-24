@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo, useState } from 'react'
+import { SOURCE_LABELS, UNAVAILABLE, sourceDetail } from '../core/definition.ts'
 import { wordStatus } from '../core/stats.ts'
 import type { VocabEntry } from '../core/types.ts'
 import { db, updateSettings } from '../db/db.ts'
@@ -13,6 +14,7 @@ import {
 } from '../db/vocab.ts'
 import { hskLabel, useSettings } from './hooks.ts'
 import { Modal } from './Modal.tsx'
+import { SourceDetail } from './SourceDetail.tsx'
 
 const HSK_OPTIONS: [HskFilter, string][] = [
   ['all', 'All levels'],
@@ -101,8 +103,14 @@ export default function Vocab() {
               <span>{e.py}</span>
               <span className="badge hsk">{hskLabel(e.hsk)}</span>
               <span className="badge">{st === 'learned' ? 'Learned' : 'New'}</span>
+              {e.defSource && (
+                <span className={`badge source ${e.defSource}`} data-testid="vocab-source">
+                  {SOURCE_LABELS[e.defSource]}
+                </span>
+              )}
             </div>
-            <div>{e.def}</div>
+            <div>{e.def && e.def !== UNAVAILABLE ? e.def : <span className="muted">No definition found</span>}</div>
+            <SourceDetail detail={sourceDetail(e)} />
             <div className="muted">
               Read {times}× · saved {new Date(e.savedAt).toLocaleDateString()}
             </div>

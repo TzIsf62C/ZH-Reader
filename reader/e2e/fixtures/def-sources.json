@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "textId": "def-sources-fixture",
+  "title": "Definition sources",
+  "script": "mixed",
+  "createdAt": "2026-11-23T00:00:00Z",
+  "stats": { "wordCount": 5, "uniqueWords": 5, "hskCoverage": { "1": 2, "none": 3 } },
+  "paragraphs": [
+    {
+      "sentences": [
+        {
+          "id": "p0s0",
+          "translation": "I go to the Lucky Clover Gazette.",
+          "tokens": [
+            { "t": "我", "k": "我", "py": "wǒ", "def": "I", "src": "claude" },
+            { "t": "去", "k": "去", "py": "qù", "def": "to go", "src": "claude" },
+            { "t": "白詰報社", "k": "白诘报社", "py": "Báijié bàoshè", "def": "Lucky Clover Gazette (organization)", "src": "claude" },
+            { "t": "。", "p": true }
+          ]
+        },
+        {
+          "id": "p0s1",
+          "translation": "The water filter is jīméng.",
+          "tokens": [
+            { "t": "滤水器", "k": "滤水器", "py": "lǜshuǐqì", "def": "water filter", "src": "claude" },
+            { "t": "叽萌", "k": "叽萌", "py": "jīméng", "def": "[definition unavailable]", "src": "claude" },
+            { "t": "。", "p": true }
+          ]
+        }
+      ]
+    }
+  ],
+  "words": {
+    "我": { "simp": "我", "trad": "我", "py": "wǒ", "def": "I; me", "countInText": 1, "hsk": "1", "defSource": "dictionary" },
+    "去": { "simp": "去", "trad": "去", "py": "qù", "def": "to go", "countInText": 1, "hsk": "1", "defSource": "dictionary" },
+    "白诘报社": {
+      "simp": "白诘报社", "trad": "白詰報社", "py": "bái jí bào shè", "def": "[definition unavailable]",
+      "countInText": 1, "hsk": null, "defSource": "glossary",
+      "glossary": { "file": "totk.tsv", "source": "https://zelda.kiranico.com/zh-Hant/totk/map" }
+    },
+    "滤水器": {
+      "simp": "滤水器", "trad": "濾水器", "py": "lǜ shuǐ qì", "def": "[definition unavailable]",
+      "countInText": 1, "hsk": null, "defSource": "contextual",
+      "basis": { "kind": "transparent_compound", "note": "滤 to filter + 水 water + 器 device" }
+    },
+    "叽萌": { "simp": "叽萌", "trad": "嘰萌", "py": "jī méng", "def": "[definition unavailable]", "countInText": 1, "hsk": null, "defSource": "unknown" }
+  }
+}

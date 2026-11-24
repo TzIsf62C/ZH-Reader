@@ -129,7 +129,7 @@ For occasional use, API billing can be cheaper than a subscription. Compare agai
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | In progress: loader, G1 and G4–G6 built, with reader display (2026-11-23) |
 | **Added** | 2026-11-23 |
 
 ### Problem
@@ -174,11 +174,11 @@ Every row has a `kind`:
 
 | # | Change |
 |---|---|
-| G1 | **`--glossary <path>`** on `prepare` (repeatable). The paths are stored in the manifest, so resume and validation use the same glossaries. |
+| G1 | **`--glossary <path>`** on `prepare` (repeatable). The paths are stored in the manifest, so resume and validation use the same glossaries. Resuming a work directory with different glossaries is an error. |
 | G2 | **Segmentation.** Every `term` and `override` row is added to jieba's user dictionary before segmentation (`jieba.add_word` with a high frequency), so terms come out as single tokens. `name` rows are not added. |
 | G3 | **Candidates.** A `term` that is not in CC-CEDICT, or any `override`, gets `candidates` built from its row and a `glossary: {"file", "source"}` marker in the chunk input. It no longer appears in `gaps`. For a `term`, CC-CEDICT still wins when the string is in both. |
-| G4 | **Definition source.** A new `defSource` value, `glossary`. The token's `def` must share a word or four-letter stem with the row's `english`, the same rule as dictionary glosses. No `basis` is allowed. The validator accepts `glossary` for an `override` even though the string is in CC-CEDICT. |
-| G5 | **Provenance.** The `words` entry keeps `def: "[definition unavailable]"` (as contextual entries do, since the reader labels that field as the dictionary definition) plus `defSource: "glossary"` and `glossary: {"file", "source"}`. The reader needs no change. |
+| G4 | **Definition source.** A new `defSource` value, `glossary`. The token's `def` must share a word or four-letter stem with the row's `english`, the same rule as dictionary glosses. No `basis` is allowed. The validator accepts `glossary` for an `override` even though the string is in CC-CEDICT. A glossary `term` (not in CC-CEDICT) or `override` tagged `contextual` or `unknown` is rejected, so glossary glosses are always labeled as such. |
+| G5 | **Provenance.** The `words` entry keeps `def: "[definition unavailable]"` (as contextual entries do, since that field is the dictionary definition) plus `defSource: "glossary"` and `glossary: {"file", "source"}`. `file` is the glossary's file name, not its path. The reader shows the source (see Reader display). |
 | G6 | **Report.** `definitionSources` gains a `glossary` count, and a `glossaryTerms` list gives each matched term with its file and source. |
 | G7 | **Gap harvest.** A new `gaps` command lists every gap word across the whole text with its frequency and one example sentence. It runs locally, so the user sees what to add to the glossary before spending tokens on annotation. It runs after G2, so known terms are already joined; without that step most gaps are fragments of split names (see Findings). |
 | G8 | **Translation names.** Each chunk input gets a `names` list: every `name` row (and every `term`) whose string occurs in the chunk, with its `english`. Claude uses these in sentence translations. They do not change tokens. |
@@ -187,7 +187,7 @@ Every row has a `kind`:
 
 ### Building a glossary
 
-This is the skill's **default workflow** whenever the user asks for a glossary to be created, or a glossary already exists for the text's domain (decided 2026-11-23). The skill's `reference/glossaries.md` describes it. Until G1–G10 are built, the skill applies the glossary by hand while writing each chunk.
+This is the skill's **default workflow** whenever the user asks for a glossary to be created, or a glossary already exists for the text's domain (decided 2026-11-23). The skill's `reference/glossaries.md` describes it. `prepare --glossary` and the `glossary` defSource are built; until G2, G3, G8 and G10 are, the skill still segments glossary terms and applies `name` rows by hand while writing each chunk.
 
 1. Run `prepare`, then `gaps`, on the new text. This is local and costs no tokens.
 2. Fill only the listed gaps, preferably from bulk sources: one list page gives dozens of rows. Candidates are wiki tables of official names in other languages, such as Zelda Wiki's "Names in Other Regions", or Chinese fan-wiki item, enemy and location lists. Check each site's current layout before relying on it. Use term-by-term search only for leftovers.
@@ -226,9 +226,9 @@ The workflow was tested by hand, before any code existed, on a QuestFern walkthr
 
 ### Milestones
 
-1. [ ] Glossary loader and TSV validation, with tests (traditional/simplified indexing, duplicates, missing `source`, valid `kind`).
-2. [ ] G1–G3: user dictionary for jieba (`term` and `override` only), candidates and gap exclusion in `prepare`.
-3. [ ] G4–G6: `glossary` defSource in `schema.py` (`DEF_SOURCES`), the validator (including `override`), assembly and the report; update `schema-v1.md` and `dictionary-gaps.md`.
+1. [x] Glossary loader and TSV validation, with tests (traditional/simplified indexing, duplicates, missing `source`, valid `kind`). `preprocessor/src/zh_preprocessor/glossary.py`; `name` rows may contain punctuation (quest titles), `term`/`override` rows may not.
+2. [ ] G1–G3: user dictionary for jieba (`term` and `override` only), candidates and gap exclusion in `prepare`. (G1 done 2026-11-23; G2 and G3 open.)
+3. [x] G4–G6: `glossary` defSource in `schema.py` (`DEF_SOURCES`), the validator (including `override`), assembly and the report; update `schema-v1.md` and `dictionary-gaps.md`.
 4. [ ] G7: `gaps` command.
 5. [ ] G8: `names` list in chunk inputs; update `annotation-rules.md` to use it in translations.
 6. [ ] G9: validate against full CC-CEDICT senses.
@@ -242,15 +242,32 @@ The workflow was tested by hand, before any code existed, on a QuestFern walkthr
 - [ ] A glossary term reaches Claude with candidates and is not listed in `gaps`.
 - [ ] A `term` that is also in CC-CEDICT is treated as `dictionary`; an `override` is treated as `glossary` (畢茲 → Beetz, 雙子 → Dueling Peaks).
 - [ ] The longest glossary match wins and the remainder is split into dictionary words (依蓋隊基地 → 依蓋 / 隊 / 基地; 塔邦撻大橋驛站 → 塔邦撻 / 大 / 橋 / 驛站).
-- [ ] The validator rejects a `glossary` gloss that shares no word with the row's `english`.
+- [x] The validator rejects a `glossary` gloss that shares no word with the row's `english`.
 - [ ] The validator accepts a gloss from any full CC-CEDICT sense (帶 "to take along").
-- [ ] The report counts and lists glossary terms with their sources.
+- [x] The report counts and lists glossary terms with their sources.
 - [ ] A run without `--glossary` produces the same output as before.
 
 ### Open questions
 
-- **Reader display.** Should the reader eventually show glossary glosses, labeled with their source, in the word panel? That needs a reader change, so it is out of scope here.
 - **Sharing.** Should glossaries be versioned, such as in a separate repository, so they can be reused and corrected over time?
+
+### Reader display (resolved 2026-11-23)
+
+The reader's word panel labels every definition with its source, read from the `words` entry's `defSource`:
+
+| `defSource` | Badge | Definition shown | On demand |
+|---|---|---|---|
+| `dictionary` | Dictionary | The token's gloss, plus "Dictionary: …" when the entry's definition differs | — |
+| `contextual` | Contextual | The token's gloss | "Why?": the basis kind in plain words and its note |
+| `glossary` | Glossary | The token's gloss | "Source": the glossary file name and the row's source (a link for http(s) URLs, "derived" otherwise) |
+| `unknown` | Unknown | "No definition found" | — |
+| absent (API mode, older files) | Claude / Local, as before | The token's gloss, plus "Dictionary: …" when different | — |
+
+- The entry's `def` is never shown as a dictionary definition when it is the placeholder.
+- An occurrence of a contextual or glossary word that has no gloss (a chunk that fell back to local annotation) is shown as Unknown.
+- Provenance never fails an import: an unrecognized `defSource`, or a malformed `basis` or `glossary`, is dropped and the word displays as in files without provenance.
+- Saved vocab records the source shown (`defSource`, plus `basis` or `glossary`) and shows the same badge and detail.
+- The Tears of the Kingdom walkthrough from the first test keeps its 53 glossary names as `contextual`; their notes ("TotK glossary: <English>, source <url>") show under "Why?". The reader does not parse those notes. Re-running the text with `--glossary` (milestone 8) replaces them with `glossary` entries.
 
 ### Decisions (2026-11-23)
 
