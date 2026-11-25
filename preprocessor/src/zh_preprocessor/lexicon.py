@@ -17,6 +17,9 @@ from .text import HAN_PATTERN, canonical_simplified, canonical_traditional, is_h
 
 MAX_SENSES = 8  # per reading, keeps skill chunk files context-sized
 _CEDICT_ENTRY = re.compile(r"^(\S+)\s+(\S+)\s+\[([^\]]+)\]\s+/(.*)/$")
+# Cross-reference lines ("variant of 著|着[zhao1]", "old variant of 沉", "see 節骨眼") make
+# poor word entries when the same key has a real sense.
+_CROSS_REFERENCE = re.compile(r"^(?:\S+ ){0,2}variant of\b|^see\b", re.IGNORECASE)
 
 
 def _exact_pinyin(py: str) -> str:
@@ -59,6 +62,8 @@ class Lexicon:
         self.cedict_path = cedict_path
         self.hsk_path = hsk_path
         self.entries: dict[str, DictionaryEntry] = {}
+        # Every line under a key, with its short definition, for choosing a word entry.
+        self.headlines: dict[str, list[DictionaryEntry]] = {}
         self.senses: dict[str, list[DictionaryEntry]] = {}
         # CC-CEDICT's own traditional headword -> its readings. OpenCC keeps some traditional
         # characters that CC-CEDICT simplifies (著 stays 著, but 接著 is filed under 接着), so
@@ -88,6 +93,7 @@ class Lexicon:
                 definition="; ".join(definitions.split("/")[:3]),
             )
             self.entries.setdefault(key, entry)
+            self.headlines.setdefault(key, []).append(entry)
             reading = DictionaryEntry(
                 simp=key,
                 trad=entry.trad,
@@ -178,11 +184,31 @@ class Lexicon:
                         return entry.simp
         return readings[0].simp
 
+    def headline(self, key: str, py: str | None = None) -> DictionaryEntry | None:
+        """The CC-CEDICT line that best describes a key, for its word entry.
+
+        Prefers the reading the text uses (`py`, compared with tones, then without), then a
+        real sense over a cross-reference such as "variant of ...", then a common word over
+        a proper name (CC-CEDICT lists 以 "abbr. for Israel" first) unless `py` is capitalized.
+        """
+        lines = self.headlines.get(key)
+        if not lines:
+            return None
+        if py:
+            for normalize in (_exact_pinyin, _toneless_pinyin):
+                matches = [line for line in lines if normalize(line.py) == normalize(py)]
+                if matches:
+                    lines = matches
+                    break
+        senses = [line for line in lines if not _CROSS_REFERENCE.match(line.definition)]
+        proper = bool(py and py[:1].isupper())
+        return sorted(senses or lines, key=lambda line: line.py[:1].isupper() != proper)[0]
+
     def annotate(self, token: str) -> dict[str, str | bool]:
         if not is_han_word(token):
             return {"t": token, "p": True}
         key = self.key(token)
-        dictionary_entry = self.entries.get(key)
+        dictionary_entry = self.headline(key)
         py = dictionary_entry.py if dictionary_entry else " ".join(
             lazy_pinyin(token, style=Style.TONE, neutral_tone_with_five=True)
         )
@@ -193,9 +219,10 @@ class Lexicon:
         )
         return {"t": token, "k": key, "py": py, "def": definition, "src": "local"}
 
-    def word_entry(self, token: str) -> dict[str, str | int | None]:
-        key = token if token in self.entries else self.key(token)
-        dictionary_entry = self.entries.get(key)
+    def word_entry(self, token: str, py: str | None = None) -> dict[str, str | int | None]:
+        """The `words` entry for a key; `py` is the reading the text uses most."""
+        key = token if token in self.entries else self.key(token, py)
+        dictionary_entry = self.headline(key, py)
         py = dictionary_entry.py if dictionary_entry else " ".join(
             lazy_pinyin(key, style=Style.TONE, neutral_tone_with_five=True)
         )

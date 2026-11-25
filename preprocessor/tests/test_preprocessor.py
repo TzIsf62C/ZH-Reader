@@ -1129,6 +1129,7 @@ TRADITIONAL_KEY_CEDICT = (
     "# OpenCC keeps 著 and 砲 as they are; CC-CEDICT files these words under 着 and 炮.\n"
     "他 他 [ta1] /he/\n"
     "笑 笑 [xiao4] /to laugh/\n"
+    "着 着 [zhao1] /variant of 著|着[zhao1]/\n"
     "著 着 [zhao2] /to touch/\n"
     "著 着 [zhe5] /aspect particle indicating action in progress/\n"
     "著 着 [zhuo2] /to wear (clothes)/\n"
@@ -1136,6 +1137,8 @@ TRADITIONAL_KEY_CEDICT = (
     "接著 接着 [jie1 zhe5] /to continue/then/\n"
     "著作 著作 [zhu4 zuo4] /to write/literary work/\n"
     "砲彈 炮弹 [pao4 dan4] /artillery shell/\n"
+    "張 张 [Zhang1] /surname Zhang/\n"
+    "張 张 [zhang1] /sheet of paper/classifier for flat objects/\n"
     "沈 沈 [Shen3] /surname Shen/\n"
     "沈 沉 [chen2] /variant of 沉[chen2]/\n"
 )
@@ -1209,3 +1212,28 @@ class TraditionalKeyTests(unittest.TestCase):
         parts = {part["part"]: part["candidates"] for part in skill.gap_evidence("笑著他", self.lexicon)}
         self.assertIn("著", parts)
         self.assertIn("zhe", [candidate["py"] for candidate in parts["著"]])
+
+    def test_word_entry_uses_the_texts_reading_and_skips_cross_references(self):
+        default = self.lexicon.word_entry("着")
+        self.assertEqual((default["py"], default["def"], default["trad"]), ("zháo", "to touch", "著"))
+        particle = self.lexicon.word_entry("着", "zhe")
+        self.assertEqual(particle["py"], "zhe")
+        self.assertEqual(particle["def"], "aspect particle indicating action in progress")
+        self.assertEqual(particle["trad"], "著")
+
+    def test_text_words_map_takes_the_most_used_reading(self):
+        def annotate(sentence):
+            return "", [
+                {"t": "他", "k": "他", "py": "tā", "def": "he", "src": "claude"},
+                {"t": "笑", "k": "笑", "py": "xiào", "def": "to laugh", "src": "claude"},
+                {"t": "著", "k": "着", "py": "zhe", "def": "aspect particle", "src": "claude"},
+            ], {}
+
+        data, _, _ = build_text_file("他笑著", "Sample", "trad", annotate, self.lexicon)
+        self.assertEqual(data["words"]["着"]["py"], "zhe")
+        self.assertIn("aspect particle", data["words"]["着"]["def"])
+        self.assertEqual(validate_text_file(data), [])
+
+    def test_word_entry_prefers_a_common_word_unless_the_text_reads_a_name(self):
+        self.assertEqual(self.lexicon.word_entry("张")["py"], "zhāng")
+        self.assertEqual(self.lexicon.word_entry("张", "Zhāng")["def"], "surname Zhang")

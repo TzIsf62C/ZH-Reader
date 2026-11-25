@@ -28,6 +28,7 @@ def build_text_file(
     paragraphs = split_paragraphs(normalized)
     output_paragraphs = []
     word_counts: Counter[str] = Counter()
+    readings: dict[str, Counter[str]] = {}  # key -> pinyin used in the text
     sentence_count = 0
     sentences_retried = 0
     retry_attempts = 0
@@ -63,6 +64,8 @@ def build_text_file(
                     continue
                 key = str(token["k"])
                 word_counts[key] += 1
+                if isinstance(token.get("py"), str):
+                    readings.setdefault(key, Counter())[token["py"]] += 1
             sentences.append(
                 {"id": sentence.id, "translation": translation, "tokens": tokens}
             )
@@ -70,7 +73,8 @@ def build_text_file(
 
     words = {}
     for key, count in word_counts.items():
-        entry = lexicon.word_entry(key)
+        used = readings.get(key)
+        entry = lexicon.word_entry(key, used.most_common(1)[0][0] if used else None)
         entry["countInText"] = count
         words[key] = entry
 
