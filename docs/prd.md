@@ -68,7 +68,7 @@ The Claude API key comes from an environment variable and is never written to th
    - Every non-punctuation token must have pinyin and a gloss.
    - Sentence count must match.
    - On failure, retry up to a configured limit, then fall back to local annotation for that chunk and record it in the report.
-6. **Compute canonical keys.** Convert each token to simplified with OpenCC to produce key `k`. Keep the original characters as `t`. Never convert simplified to traditional.
+6. **Compute canonical keys.** Convert each token to simplified with OpenCC to produce key `k`. When CC-CEDICT has no entry under that key, also look the token up by CC-CEDICT's own traditional headwords, because OpenCC keeps some characters that CC-CEDICT simplifies (接著 is filed under 接着). When a headword has several keys (著 is 着 for zhe and 著 for zhù), the token's pinyin picks one; without pinyin, OpenCC's key stays. Keep the original characters as `t`. Never convert simplified to traditional.
 7. **Count occurrences.** Compute `countInText` per key in code, not with the model. Exclude punctuation, numbers, and Latin text from vocabulary counts, but keep them as non-word tokens.
 8. **Look up CC-CEDICT.** Provide a fallback definition and the simplified and traditional forms for each key. Build lookups for both scripts.
 9. **Tag HSK 3.0.** Look up each key in the drkameleon complete-hsk-vocabulary dataset. Store the lowest matching level, with levels 7 to 9 stored as the band `"7-9"`. Leave the field null if there is no match.

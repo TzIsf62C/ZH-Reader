@@ -142,15 +142,15 @@ def gap_evidence(word: str, lexicon: Lexicon) -> list[dict]:
     shown = word if len(word) == len(key) else key
     parts: list[dict] = []
     seen: set[str] = set()
-    for length in range(len(key) - 1, 0, -1):
-        for start in range(len(key) - length + 1):
-            sub = key[start : start + length]
-            if sub in seen or sub not in lexicon:
+    for length in range(len(shown) - 1, 0, -1):
+        for start in range(len(shown) - length + 1):
+            sub = shown[start : start + length]
+            if sub in seen or not lexicon.keys_for(sub):
                 continue
             seen.add(sub)
             parts.append(
                 {
-                    "part": shown[start : start + length],
+                    "part": sub,
                     "candidates": _trim_candidates(lexicon.candidates(sub)),
                 }
             )
@@ -170,7 +170,7 @@ def _gap_list(sentences: list[dict], lexicon: Lexicon, whole_text: list) -> list
         for token in sentence["tokens"]:
             if "candidates" not in token or token["candidates"] is not None:
                 continue
-            key = canonical_simplified(token["t"])
+            key = lexicon.key(token["t"])
             gap = gaps.get(key)
             if gap is None:
                 gap = gaps[key] = {
@@ -401,7 +401,7 @@ def check_chunk_output(
             continue
         try:
             translation, tokens = make_tokens(
-                sentence["text"], item.get("translation"), item.get("tokens")
+                sentence["text"], item.get("translation"), item.get("tokens"), lexicon.key
             )
         except AnnotationError as error:
             errors.append(f"{sentence['id']}: {error}{_join_hint(sentence['text'], item)}")
@@ -504,14 +504,14 @@ def _definition_errors(
     source = written.get("defSource")
     basis = written.get("basis")
     definition = token["def"]
-    row = glossary.get(key) if glossary else None
+    row = (glossary.get(key) or glossary.get(canonical_simplified(token["t"]))) if glossary else None
 
     if source == "glossary":
         if row is not None and row.kind == "term" and key in lexicon:
             return [
                 f"is in CC-CEDICT, and its glossary row ({row.file} line {row.line}) is a "
                 '"term", not an "override", so CC-CEDICT wins: use "defSource": "dictionary". '
-                f"Candidates: {_candidate_hint(lexicon, key)}"
+                f"Candidates: {_candidate_hint(lexicon, token['t'])}"
             ]
         return _glossary_errors(written, token, row)
     if row is not None and (row.kind == "override" or key not in lexicon):
@@ -527,7 +527,7 @@ def _definition_errors(
 
     if key in lexicon:
         token["defSource"] = "dictionary"
-        hint = f"Candidates: {_candidate_hint(lexicon, key)}"
+        hint = f"Candidates: {_candidate_hint(lexicon, token['t'])}"
         if source not in (None, "dictionary"):
             return [
                 f'is in CC-CEDICT, so its defSource must be "dictionary" (or omitted), not '
@@ -640,8 +640,8 @@ def _quotes_context(note: str, word: str, text: str) -> bool:
     return False
 
 
-def _candidate_hint(lexicon: Lexicon, key: str, limit: int = 4, width: int = 160) -> str:
-    candidates = lexicon.candidates(key) or []
+def _candidate_hint(lexicon: Lexicon, word: str, limit: int = 6, width: int = 160) -> str:
+    candidates = lexicon.candidates(word) or []
     parts = []
     for candidate in candidates[:limit]:
         definition = candidate["def"]

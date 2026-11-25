@@ -6,7 +6,7 @@ import os
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .lexicon import Lexicon
 from .text import canonical_simplified, contains_han, is_han_word
@@ -35,9 +35,16 @@ class AnnotationError(RuntimeError):
 
 
 def make_tokens(
-    expected_sentence: str, translation: str, annotated_tokens: list[Any]
+    expected_sentence: str,
+    translation: str,
+    annotated_tokens: list[Any],
+    key_for: Callable[[str, str], str] | None = None,
 ) -> tuple[str, list[dict[str, str | bool]]]:
-    """Validate model-written tokens and convert them to schema-v1 tokens."""
+    """Validate model-written tokens and convert them to schema-v1 tokens.
+
+    `key_for(text, pinyin)` gives each word's simplified key; pass `Lexicon.key` so a key
+    matches its CC-CEDICT entry (接著 -> 接着). Without it, keys come from OpenCC alone.
+    """
     if (
         not isinstance(translation, str)
         or not translation.strip()
@@ -61,7 +68,11 @@ def make_tokens(
             tokens.append(
                 {
                     "t": token_text,
-                    "k": canonical_simplified(token_text),
+                    "k": (
+                        key_for(token_text, pinyin.strip())
+                        if key_for
+                        else canonical_simplified(token_text)
+                    ),
                     "py": pinyin.strip(),
                     "def": definition.strip(),
                     "src": "claude",
@@ -306,7 +317,7 @@ class ClaudeAnnotator:
     def _make_tokens(
         self, expected_sentence: str, translation: str, annotated_tokens: list[Any]
     ) -> tuple[str, list[dict[str, str | bool]]]:
-        return make_tokens(expected_sentence, translation, annotated_tokens)
+        return make_tokens(expected_sentence, translation, annotated_tokens, self.lexicon.key)
 
     def _estimate_cost(self, sentence: str) -> float:
         input_tokens = (len(SYSTEM_PROMPT) + 2) // 3 + len(sentence)

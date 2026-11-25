@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import json
 import re
+import unicodedata
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,20 @@ from .text import HAN_PATTERN, canonical_simplified, canonical_traditional, is_h
 
 MAX_SENSES = 8  # per reading, keeps skill chunk files context-sized
 _CEDICT_ENTRY = re.compile(r"^(\S+)\s+(\S+)\s+\[([^\]]+)\]\s+/(.*)/$")
+
+
+def _exact_pinyin(py: str) -> str:
+    """Pinyin compared with tones: lower case, letters only ("Jiē zhe" -> "jiēzhe")."""
+    return "".join(
+        character for character in unicodedata.normalize("NFC", py.lower())
+        if character.isalpha()
+    )
+
+
+def _toneless_pinyin(py: str) -> str:
+    """Pinyin compared without tones ("zhù" -> "zhu")."""
+    decomposed = unicodedata.normalize("NFD", py.lower())
+    return "".join(character for character in decomposed if character.isascii() and character.isalpha())
 
 
 @dataclass(frozen=True)
@@ -45,6 +60,10 @@ class Lexicon:
         self.hsk_path = hsk_path
         self.entries: dict[str, DictionaryEntry] = {}
         self.senses: dict[str, list[DictionaryEntry]] = {}
+        # CC-CEDICT's own traditional headword -> {simplified key: entry count}. OpenCC keeps
+        # some traditional characters that CC-CEDICT simplifies (著 stays 著, but 接著 is
+        # filed under 接着), so a key from conversion alone can miss the entry.
+        self.trad_keys: dict[str, dict[str, int]] = {}
         self.hsk_levels: dict[str, str] = {}
         self._load_cedict()
         self._load_hsk()
@@ -69,6 +88,8 @@ class Lexicon:
                 definition="; ".join(definitions.split("/")[:3]),
             )
             self.entries.setdefault(key, entry)
+            trad_counts = self.trad_keys.setdefault(trad, {})
+            trad_counts[key] = trad_counts.get(key, 0) + 1
             self.senses.setdefault(key, []).append(
                 DictionaryEntry(
                     simp=key,
@@ -125,10 +146,39 @@ class Lexicon:
             tokens.append(text[cursor:])
         return tokens
 
+    def keys_for(self, token: str) -> list[str]:
+        """The CC-CEDICT keys a token can stand for, most likely first; empty when none.
+
+        A token matches by OpenCC conversion and by CC-CEDICT's traditional headwords
+        (著 is 着 for zhe/zháo/zhuó and 著 for zhù). OpenCC's key comes first when CC-CEDICT
+        has it, because the token may be simplified text (宁 is also a traditional headword
+        for 㝉); the other keys follow, most entries first.
+        """
+        converted = canonical_simplified(token)
+        counts = self.trad_keys.get(token, {})
+        others = sorted((key for key in counts if key != converted), key=lambda key: -counts[key])
+        return ([converted] if converted in self.entries else []) + others
+
+    def key(self, token: str, py: str | None = None) -> str:
+        """The simplified key for a token: its CC-CEDICT entry, chosen by pinyin if given.
+
+        Falls back to OpenCC conversion for words missing from CC-CEDICT.
+        """
+        keys = self.keys_for(token)
+        if not keys:
+            return canonical_simplified(token)
+        if py and len(keys) > 1:
+            for normalize in (_exact_pinyin, _toneless_pinyin):
+                wanted = normalize(py)
+                for key in keys:
+                    if any(normalize(entry.py) == wanted for entry in self.senses[key]):
+                        return key
+        return keys[0]
+
     def annotate(self, token: str) -> dict[str, str | bool]:
         if not is_han_word(token):
             return {"t": token, "p": True}
-        key = canonical_simplified(token)
+        key = self.key(token)
         dictionary_entry = self.entries.get(key)
         py = dictionary_entry.py if dictionary_entry else " ".join(
             lazy_pinyin(token, style=Style.TONE, neutral_tone_with_five=True)
@@ -141,7 +191,7 @@ class Lexicon:
         return {"t": token, "k": key, "py": py, "def": definition, "src": "local"}
 
     def word_entry(self, token: str) -> dict[str, str | int | None]:
-        key = canonical_simplified(token)
+        key = token if token in self.entries else self.key(token)
         dictionary_entry = self.entries.get(key)
         py = dictionary_entry.py if dictionary_entry else " ".join(
             lazy_pinyin(key, style=Style.TONE, neutral_tone_with_five=True)
@@ -162,7 +212,7 @@ class Lexicon:
 
     def candidates(self, token: str) -> list[dict[str, str]] | None:
         """All CC-CEDICT readings for a word, or None when CC-CEDICT has no entry."""
-        entries = self.senses.get(canonical_simplified(token))
+        entries = [entry for key in self.keys_for(token) for entry in self.senses[key]]
         if not entries:
             return None
         return [{"py": entry.py, "def": entry.definition} for entry in entries]

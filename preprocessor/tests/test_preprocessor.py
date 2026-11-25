@@ -1123,3 +1123,89 @@ class GlossaryTests(unittest.TestCase):
                     "words": {"叽萌": entry},
                 }
                 self.assertEqual(bool(validate_text_file(data)), invalid, validate_text_file(data))
+
+
+TRADITIONAL_KEY_CEDICT = (
+    "# OpenCC keeps 著 and 砲 as they are; CC-CEDICT files these words under 着 and 炮.\n"
+    "他 他 [ta1] /he/\n"
+    "笑 笑 [xiao4] /to laugh/\n"
+    "著 着 [zhao2] /to touch/\n"
+    "著 着 [zhe5] /aspect particle indicating action in progress/\n"
+    "著 着 [zhuo2] /to wear (clothes)/\n"
+    "著 著 [zhu4] /to make known/to write/book/\n"
+    "接著 接着 [jie1 zhe5] /to continue/then/\n"
+    "著作 著作 [zhu4 zuo4] /to write/literary work/\n"
+    "砲彈 炮弹 [pao4 dan4] /artillery shell/\n"
+    "沈 沈 [Shen3] /surname Shen/\n"
+    "沈 沉 [chen2] /variant of 沉[chen2]/\n"
+)
+
+
+class TraditionalKeyTests(unittest.TestCase):
+    """Traditional words reach their CC-CEDICT entry even when OpenCC converts them differently."""
+
+    def setUp(self):
+        self.fixture = Fixture()
+        cedict = self.fixture.root / "traditional-keys.txt"
+        cedict.write_text(TRADITIONAL_KEY_CEDICT, encoding="utf-8")
+        self.lexicon = Lexicon(cedict, self.fixture.hsk)
+
+    def tearDown(self):
+        self.fixture.close()
+
+    def test_traditional_headword_finds_the_entry_opencc_misses(self):
+        self.assertEqual(self.lexicon.key("接著"), "接着")
+        self.assertEqual(self.lexicon.key("砲彈"), "炮弹")
+        self.assertEqual(self.lexicon.candidates("接著"), [{"py": "jiē zhe", "def": "to continue; then"}])
+        annotated = self.lexicon.annotate("接著")
+        self.assertEqual((annotated["k"], annotated["py"]), ("接着", "jiē zhe"))
+
+    def test_words_opencc_already_converts_keep_their_key(self):
+        self.assertEqual(self.lexicon.key("著作"), "著作")
+        self.assertEqual(self.lexicon.key("他"), "他")
+        self.assertEqual(self.lexicon.key("不在字典"), "不在字典")
+        self.assertIsNone(self.lexicon.candidates("不在字典"))
+
+    def test_ambiguous_character_offers_every_reading_and_pinyin_picks_the_key(self):
+        readings = [candidate["py"] for candidate in self.lexicon.candidates("著")]
+        self.assertEqual(readings, ["zhù", "zháo", "zhe", "zhuó"])
+        self.assertEqual(self.lexicon.key("著"), "著")  # without pinyin, OpenCC's key stays
+        self.assertEqual(self.lexicon.key("著", "zhe"), "着")
+        self.assertEqual(self.lexicon.key("著", "zhù"), "著")
+        self.assertEqual(self.lexicon.key("著", "zhe5"), "着")  # toneless fallback
+        self.assertEqual(self.lexicon.key("沈"), "沈")
+        self.assertEqual(self.lexicon.key("沈", "chén"), "沉")
+
+    def test_skill_validation_keys_traditional_words_by_their_entry(self):
+        chunk = {"sentences": [{"id": "p0s0", "text": "他接著笑著。"},
+                               {"id": "p0s1", "text": "著作"}]}
+        output = [
+            {"id": "p0s0", "translation": "Then he kept laughing.", "tokens": [
+                {"t": "他", "py": "tā", "def": "he"},
+                {"t": "接著", "py": "jiēzhe", "def": "then"},
+                {"t": "笑", "py": "xiào", "def": "to laugh"},
+                {"t": "著", "py": "zhe", "def": "aspect particle"},
+                {"t": "。"}]},
+            {"id": "p0s1", "translation": "Literary work", "tokens": [
+                {"t": "著作", "py": "zhùzuò", "def": "literary work"}]},
+        ]
+        accepted, errors = skill.check_chunk_output(chunk, output, self.lexicon)
+        self.assertEqual(errors, [])
+        keys = [token.get("k") for sentence in accepted for token in sentence["tokens"]]
+        self.assertEqual(keys, ["他", "接着", "笑", "着", None, "著作"])
+
+    def test_skill_rejects_a_gloss_from_the_other_reading_and_lists_all_readings(self):
+        chunk = {"sentences": [{"id": "p0s0", "text": "笑著"}]}
+        output = [{"id": "p0s0", "translation": "laughing", "tokens": [
+            {"t": "笑", "py": "xiào", "def": "to laugh"},
+            {"t": "著", "py": "zhe", "def": "book"}]}]
+        errors = skill.check_chunk_output(chunk, output, self.lexicon)[1]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("matches no CC-CEDICT sense", errors[0])
+        self.assertIn("[zhe] aspect particle", errors[0])
+        self.assertIn("[zhù]", errors[0])
+
+    def test_gap_evidence_shows_the_particle_reading_of_著(self):
+        parts = {part["part"]: part["candidates"] for part in skill.gap_evidence("笑著他", self.lexicon)}
+        self.assertIn("著", parts)
+        self.assertIn("zhe", [candidate["py"] for candidate in parts["著"]])
