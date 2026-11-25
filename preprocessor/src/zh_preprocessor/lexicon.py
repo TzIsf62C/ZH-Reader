@@ -60,10 +60,10 @@ class Lexicon:
         self.hsk_path = hsk_path
         self.entries: dict[str, DictionaryEntry] = {}
         self.senses: dict[str, list[DictionaryEntry]] = {}
-        # CC-CEDICT's own traditional headword -> {simplified key: entry count}. OpenCC keeps
-        # some traditional characters that CC-CEDICT simplifies (著 stays 著, but 接著 is
-        # filed under 接着), so a key from conversion alone can miss the entry.
-        self.trad_keys: dict[str, dict[str, int]] = {}
+        # CC-CEDICT's own traditional headword -> its readings. OpenCC keeps some traditional
+        # characters that CC-CEDICT simplifies (著 stays 著, but 接著 is filed under 接着), so
+        # a key from conversion alone can miss the entry.
+        self.trad_senses: dict[str, list[DictionaryEntry]] = {}
         self.hsk_levels: dict[str, str] = {}
         self._load_cedict()
         self._load_hsk()
@@ -88,18 +88,16 @@ class Lexicon:
                 definition="; ".join(definitions.split("/")[:3]),
             )
             self.entries.setdefault(key, entry)
-            trad_counts = self.trad_keys.setdefault(trad, {})
-            trad_counts[key] = trad_counts.get(key, 0) + 1
-            self.senses.setdefault(key, []).append(
-                DictionaryEntry(
-                    simp=key,
-                    trad=entry.trad,
-                    py=entry.py,
-                    definition="; ".join(
-                        [sense for sense in definitions.split("/") if sense][:MAX_SENSES]
-                    ),
-                )
+            reading = DictionaryEntry(
+                simp=key,
+                trad=entry.trad,
+                py=entry.py,
+                definition="; ".join(
+                    [sense for sense in definitions.split("/") if sense][:MAX_SENSES]
+                ),
             )
+            self.senses.setdefault(key, []).append(reading)
+            self.trad_senses.setdefault(trad, []).append(reading)
             loaded += 1
         if not loaded:
             raise ValueError(f"No valid CC-CEDICT entries found in {self.cedict_path}.")
@@ -146,34 +144,39 @@ class Lexicon:
             tokens.append(text[cursor:])
         return tokens
 
-    def keys_for(self, token: str) -> list[str]:
-        """The CC-CEDICT keys a token can stand for, most likely first; empty when none.
+    def readings(self, token: str) -> list[DictionaryEntry]:
+        """Every CC-CEDICT reading a token can stand for; empty when CC-CEDICT has none.
 
         A token matches by OpenCC conversion and by CC-CEDICT's traditional headwords
-        (著 is 着 for zhe/zháo/zhuó and 著 for zhù). OpenCC's key comes first when CC-CEDICT
-        has it, because the token may be simplified text (宁 is also a traditional headword
-        for 㝉); the other keys follow, most entries first.
+        (著 is 着 for zhe/zháo/zhuó and 著 for zhù). OpenCC's readings come first, because the
+        token may be simplified text (宁 is also a traditional headword for 㝉); readings
+        under another key follow only where their traditional headword is the token itself.
         """
         converted = canonical_simplified(token)
-        counts = self.trad_keys.get(token, {})
-        others = sorted((key for key in counts if key != converted), key=lambda key: -counts[key])
-        return ([converted] if converted in self.entries else []) + others
+        own = self.senses.get(converted, [])
+        return own + [
+            entry for entry in self.trad_senses.get(token, []) if entry.simp != converted
+        ]
+
+    def keys_for(self, token: str) -> list[str]:
+        """The CC-CEDICT keys a token can stand for, OpenCC's first; empty when none."""
+        return list(dict.fromkeys(entry.simp for entry in self.readings(token)))
 
     def key(self, token: str, py: str | None = None) -> str:
         """The simplified key for a token: its CC-CEDICT entry, chosen by pinyin if given.
 
         Falls back to OpenCC conversion for words missing from CC-CEDICT.
         """
-        keys = self.keys_for(token)
-        if not keys:
+        readings = self.readings(token)
+        if not readings:
             return canonical_simplified(token)
-        if py and len(keys) > 1:
+        if py:
             for normalize in (_exact_pinyin, _toneless_pinyin):
                 wanted = normalize(py)
-                for key in keys:
-                    if any(normalize(entry.py) == wanted for entry in self.senses[key]):
-                        return key
-        return keys[0]
+                for entry in readings:
+                    if normalize(entry.py) == wanted:
+                        return entry.simp
+        return readings[0].simp
 
     def annotate(self, token: str) -> dict[str, str | bool]:
         if not is_han_word(token):
@@ -212,7 +215,7 @@ class Lexicon:
 
     def candidates(self, token: str) -> list[dict[str, str]] | None:
         """All CC-CEDICT readings for a word, or None when CC-CEDICT has no entry."""
-        entries = [entry for key in self.keys_for(token) for entry in self.senses[key]]
+        entries = self.readings(token)
         if not entries:
             return None
         return [{"py": entry.py, "def": entry.definition} for entry in entries]
